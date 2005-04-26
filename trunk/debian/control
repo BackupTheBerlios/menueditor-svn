@@ -1,0 +1,14 @@
+Source: smeg
+Section: utils
+Priority: optional
+Maintainer: Travis Watkins <alleykat@gmail.com>
+Build-Depends: cdbs (>= 0.4.23-1.1), debhelper (>= 4.1.0), python2.4-dev
+Standards-Version: 3.6.1
+
+Package: smeg
+Architecture: all
+Depends: python (>= 2.4), python2.4-gtk2 (>= 2.5.4), python-xdg (>= 0.9)
+Description: simple menu editor for GNOME
+ A simple menu editor for GNOME 2.10 that can edit and add new entries and
+ menus. It implements the freedesktop.org menu spec but may or may not work
+ with other Desktop Environments.

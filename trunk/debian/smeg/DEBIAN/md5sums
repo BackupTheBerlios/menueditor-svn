@@ -1,0 +1,8 @@
+52ef00bcb0244cbbba5729dc1471ad1a  usr/bin/smeg
+9909e339bf20b26a89b1b9121d528b1c  usr/lib/smeg/dialogs.py
+8d12b4dbef218c94baa31d55a8605847  usr/lib/smeg/menu_handler.py
+1e586d57a855168ee2618fb584633594  usr/share/applications/smeg.desktop
+ddf90569994c3c3ccf0b38961d0d77b5  usr/share/pixmaps/smeg.png
+953dc94cdf1041329d53acfd569da872  usr/share/doc/smeg/AUTHORS
+d99f321d0e22015503bce26930f547cf  usr/share/doc/smeg/copyright
+5e2da83bbf7d9b6150bcc756e9787945  usr/share/doc/smeg/changelog.Debian.gz

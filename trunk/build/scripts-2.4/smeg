@@ -1,0 +1,230 @@
+#!/usr/bin/python
+"""
+  Smeg - Simple Menu Editor for GNOME
+
+  Travis Watkins <alleykat@gmail.com>
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+  (C) Copyright 2005 Travis Watkins
+"""
+
+import os, sys, string
+dir = os.path.split(sys.argv[0])[0]
+prefix = os.path.split(dir)[0]
+if prefix == '': prefix = '.'
+sys.path = [ os.path.join(prefix, 'lib/smeg') ] + sys.path
+from menu_handler import MenuHandler
+from dialogs import EntryEditor, MenuEditor
+from xdg.BaseDirectory import xdg_data_dirs
+
+import pygtk
+pygtk.require('2.0')
+import gtk
+
+class MainWindow(gtk.Window):
+    def __init__(self):
+        gtk.Window.__init__(self)
+        self.set_title('Smeg')
+        self.set_size_request(350, 500)
+        self.connect('destroy', lambda *a: gtk.main_quit())
+        self.vbox = gtk.VBox()
+        self.add(self.vbox)
+        self.theme = gtk.icon_theme_get_for_screen(self.get_screen())
+        self.menu_handler = MenuHandler()
+
+        try:
+            filename = './smeg.png'
+            if not os.path.isfile(filename):
+                icondir = prefix
+                if not prefix == '.':
+                    icondir = os.path.join(prefix, 'share/pixmaps')
+                filename = os.path.join(icondir, 'smeg.png')
+            self.icon = gtk.gdk.pixbuf_new_from_file(filename)
+            self.set_icon(self.icon)
+        except:
+            self.icon = None
+
+        self.root_entries = os.path.join(xdg_data_dirs[1], 'applications')
+        self.root_directories = os.path.join(xdg_data_dirs[1], 'desktop-directories')
+        self.user_entries = os.path.join(xdg_data_dirs[0], 'applications')
+        self.user_directories = os.path.join(xdg_data_dirs[0], 'desktop-directories')
+        if not os.access(self.user_entries, os.F_OK):
+            os.makedirs(self.user_entries, 0700)
+        if not os.access(self.user_directories, os.F_OK):
+            os.makedirs(self.user_directories, 0700)
+
+        self.drawMenu()
+
+        self.menus_window = gtk.ScrolledWindow()
+        self.menus_window.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+        self.vbox.pack_start(self.menus_window)
+        self.menus_window.show()
+
+        treeview = gtk.TreeView()
+        treeview.set_headers_visible(False)
+        self.selection = treeview.get_selection()
+        treeview.connect('row-activated', self.selectEditor)
+        self.menus_window.add(treeview)
+        treeview.show()
+
+        store = gtk.TreeStore(str, object, str)
+        column = gtk.TreeViewColumn('Menus')
+        pixbuf = gtk.CellRendererPixbuf()
+        text = gtk.CellRendererText()
+        column.pack_start(pixbuf, expand=False)
+        column.pack_end(text, expand=True)
+        column.set_cell_data_func(pixbuf, self.setIcon)
+        column.set_attributes(text, text=0)
+        treeview.append_column(column)
+        treeview.set_model(store)
+
+        self.treeview = treeview
+        self.store = store
+        self.setupMenus()
+        self.show_all()
+        
+
+    def drawMenu(self):
+        uistr = """<ui>
+            <menubar name="MenuBar">
+                <menu action="File">
+                    <menuitem action="New Entry"/>
+                    <menuitem action="New Menu"/>
+                    <menuitem action="Quit"/>
+                </menu>
+                <menu action="Help">
+                    <menuitem action="About"/>
+                </menu>
+            </menubar>
+        </ui>"""
+        actions = [
+            ('File', None, '_File'),
+                ('New Entry', gtk.STOCK_NEW, '_New Entry', '<Control>N', None, self.newEntry),
+                ('New Menu', None, 'New _Menu', None, None, self.newMenu),
+                ('Quit', gtk.STOCK_QUIT, '_Quit', '<Control>Q', None, lambda *a: gtk.main_quit()),
+            ('Help', None, '_Help'),
+                ('About', None, '_About Menu Editor', None, None, self.showAbout)
+            ]
+        ag = gtk.ActionGroup('MenuEditorActions')
+        ag.add_actions(actions)
+        ui = gtk.UIManager()
+        ui.insert_action_group(ag, 0)
+        ui.add_ui_from_string(uistr)
+        self.vbox.pack_start(ui.get_widget('/MenuBar'), expand=False)
+        self.add_accel_group(ui.get_accel_group())
+
+    def showAbout(self, *args):
+        about = gtk.AboutDialog()
+        if self.icon:
+            about.set_icon(self.icon)
+            about.set_logo(self.icon)
+        about.set_authors(['Travis Watkins <alleykat@gmail.com>'])
+        about.set_name('Smeg')
+        about.set_version('0.5')
+        about.set_comments('Simple Menu Editor for GNOME')
+        about.connect('response', lambda *a: about.hide())
+        about.show()
+
+    def setIcon(self, column, cell, model, iter):
+        icon = model.get_value(iter, 1).getIcon()
+        try:
+            if '/' not in icon:
+                pb = self.theme.load_icon(icon.split('.')[0], 24, ())
+            else:
+                pb = gtk.gdk.pixbuf_new_from_file_at_size(icon, 24, 24)
+        except:
+            pb = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 24, 24)
+            pb.fill(0x00000000)
+        cell.set_property('pixbuf', pb)
+
+    def setupMenus(self):
+        self.tree = [None]*10
+        self.store.clear()
+        self.treeview.set_model(None)
+        self.menu_handler.loadMenus(self)
+        self.treeview.set_model(self.store)
+        del self.tree
+
+    def addMenu(self, entry, depth):
+        self.tree[depth] = self.store.append(self.tree[depth-1], [entry.getName(), entry, 'menu'])
+
+    def addEntry(self, entry, depth):
+        self.store.append(self.tree[depth-1], [entry.getName(), entry, 'entry'])
+
+    def newEntry(self, *args):
+        self.editor = EntryEditor(self)
+
+    def newMenu(self, *args):
+        self.editor = MenuEditor(self)
+
+    def selectEditor(self, treeview, path, view_column):
+        model, iter = treeview.get_selection().get_selected()
+        entry = model.get_value(iter, 1)
+        if model.get_value(iter, 2) == 'entry':
+            entry.parent = model.get_value(model.iter_parent(iter), 1)
+            self.editor = EntryEditor(self, entry)
+        else:
+            self.editor = MenuEditor(self, entry.getDirectories())
+
+    def updatePreview(self, file_dialog, preview):
+        filename = file_dialog.get_preview_filename()
+        try:
+            if os.path.isdir(filename):
+                pixbuf = self.theme.load_icon('gnome-fs-directory', 128, ())
+            else:
+                pixbuf = gtk.gdk.pixbuf_new_from_file(filename)
+        except:
+            pixbuf = self.theme.load_icon('gnome-fs-regular', 128, ())
+        preview.set_from_pixbuf(pixbuf)
+        file_dialog.set_preview_widget_active(True)
+        return
+
+    def chooseFile(self, image_preview=False):
+        buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL,
+            gtk.STOCK_OPEN, gtk.RESPONSE_ACCEPT)
+        action = gtk.FILE_CHOOSER_ACTION_OPEN
+        file_dialog = gtk.FileChooserDialog(action=action, buttons=buttons)
+        file_dialog.set_current_folder('/usr/share/pixmaps/')
+        if image_preview:
+            preview = gtk.Image()
+            preview.set_size_request(128, 128)
+            file_dialog.set_preview_widget(preview)
+            file_dialog.connect('update-preview', self.updatePreview, preview)
+        response = file_dialog.run()
+        if response in (gtk.RESPONSE_ACCEPT, gtk.RESPONSE_OK):
+            selected_file = file_dialog.get_filename()
+        else:
+            selected_file = None
+        file_dialog.destroy()
+        return selected_file
+
+    def selectFile(self, widget, entry):
+        selected_file = self.chooseFile()
+        if selected_file:
+            entry.set_text(selected_file)
+
+    def selectIcon(self, button):
+        selected_file = self.chooseFile(True)
+        if selected_file:
+            image = gtk.Image()
+            image.set_from_file(selected_file)
+            image.show()
+            button.my_icon_name = selected_file
+            button.remove(button.get_child())
+            button.add(image)
+
+window = MainWindow()
+gtk.main()
