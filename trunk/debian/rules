@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 DEB_AUTO_UPDATE_DEBIAN_CONTROL := yes
-DEB_INSTALL_MANPAGES_menueditor := debian/smeg.1
+DEB_INSTALL_MANPAGES_smeg := debian/smeg.1
 
 include /usr/share/cdbs/1/rules/debhelper.mk
 include /usr/share/cdbs/1/class/python-distutils.mk
