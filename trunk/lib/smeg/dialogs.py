@@ -35,12 +35,12 @@ class EntryEditor(gtk.Dialog):
             entry.addGroup('Desktop Entry')
             entry.set('Encoding', 'UTF-8', 'Desktop Entry')
             entry.set('Type', 'Application', 'Desktop Entry')
-            gtk.Dialog.__init__(self, 'Entry Editor', gui,
+            gtk.Dialog.__init__(self, _('Entry Editor'), gui,
                 gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
                 (gtk.STOCK_OK, gtk.RESPONSE_ACCEPT,
                 gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT))
         else:
-            gtk.Dialog.__init__(self, 'Entry Editor', gui,
+            gtk.Dialog.__init__(self, _('Entry Editor'), gui,
                 gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
                 (gtk.STOCK_DELETE, gtk.RESPONSE_NO,
                 gtk.STOCK_OK, gtk.RESPONSE_ACCEPT,
@@ -62,7 +62,7 @@ class EntryEditor(gtk.Dialog):
         self.entries = []
         content = self.entry.content['Desktop Entry']
 
-        name_label = gtk.Label('Name:')
+        name_label = gtk.Label(_('Name:'))
         name_label.set_alignment(0, 0.5)
         table.attach(name_label, 0, 1, 0, 1, gtk.FILL)
         name_label.show()
@@ -75,7 +75,7 @@ class EntryEditor(gtk.Dialog):
         name_entry.show()
         self.entries.append(name_entry)
 
-        comment_label = gtk.Label('Comment:')
+        comment_label = gtk.Label(_('Comment:'))
         comment_label.set_alignment(0, 0.5)
         table.attach(comment_label, 0, 1, 1, 2, gtk.FILL)
         comment_label.show()
@@ -88,7 +88,7 @@ class EntryEditor(gtk.Dialog):
         comment_entry.show()
         self.entries.append(comment_entry)
 
-        command_label = gtk.Label('Command:')
+        command_label = gtk.Label(_('Command:'))
         command_label.set_alignment(0, 0.5)
         table.attach(command_label, 0, 1, 2, 3, gtk.FILL)
         command_label.show()
@@ -99,20 +99,20 @@ class EntryEditor(gtk.Dialog):
         command_box.add(command_entry)
         command_entry.show()
         self.entries.append(command_entry)
-        command_button = gtk.Button('Browse')
+        command_button = gtk.Button(_('Browse'))
         command_button.connect('clicked', self.gui.selectFile, command_entry)
         command_box.add(command_button)
         command_button.show()
         table.attach(command_box, 1, 2, 2, 3, gtk.FILL, gtk.FILL)
         command_box.show()
 
-        icon_label = gtk.Label('Icon:')
+        icon_label = gtk.Label(_('Icon:'))
         icon_label.set_alignment(0, 0.5)
         table.attach(icon_label, 0, 1, 3, 4, gtk.FILL)
         icon_label.show()
         icon_box = gtk.HBox()
         icon_box.set_spacing(3)
-        icon_button = gtk.Button('No Icon')
+        icon_button = gtk.Button(_('No Icon'))
         icon_button.set_size_request(64, 64)
         icon_button.connect('clicked', self.gui.selectIcon)
         try:
@@ -131,7 +131,7 @@ class EntryEditor(gtk.Dialog):
         icon_box.pack_start(icon_button, expand=False)
         icon_button.show()
         self.entries.append(icon_button)
-        term_check = gtk.CheckButton('Run in terminal')
+        term_check = gtk.CheckButton(_('Run in terminal'))
         if self.entry.getTerminal() is True:
             term_check.set_active(1)
         icon_box.pack_start(term_check, expand=False)
@@ -140,7 +140,7 @@ class EntryEditor(gtk.Dialog):
         table.attach(icon_box, 1, 2, 3, 4, gtk.FILL, gtk.FILL)
         icon_box.show()
 
-        category_label = gtk.Label('Category:')
+        category_label = gtk.Label(_('Category:'))
         category_label.set_alignment(0, 0.5)
         table.attach(category_label, 0, 1, 4, 5, gtk.FILL)
         category_label.show()
@@ -241,12 +241,12 @@ class MenuEditor(gtk.Dialog):
             entry.addGroup('Desktop Entry')
             entry.set('Encoding', 'UTF-8', 'Desktop Entry')
             entry.set('Type', 'Directory', 'Desktop Entry')
-            gtk.Dialog.__init__(self, 'Menu Editor', gui,
+            gtk.Dialog.__init__(self, _('Menu Editor'), gui,
                 gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
                 (gtk.STOCK_OK, gtk.RESPONSE_ACCEPT,
                 gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT))
         else:
-            gtk.Dialog.__init__(self, 'Menu Editor', gui,
+            gtk.Dialog.__init__(self, _('Menu Editor'), gui,
                 gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
                 (gtk.STOCK_DELETE, gtk.RESPONSE_NO,
                 gtk.STOCK_OK, gtk.RESPONSE_ACCEPT,
@@ -269,7 +269,7 @@ class MenuEditor(gtk.Dialog):
         self.entries = []
         content = self.entry.content['Desktop Entry']
 
-        name_label = gtk.Label('Name:')
+        name_label = gtk.Label(_('Name:'))
         name_label.set_alignment(0, 0.5)
         table.attach(name_label, 0, 1, 0, 1, gtk.FILL)
         name_label.show()
@@ -282,7 +282,7 @@ class MenuEditor(gtk.Dialog):
         name_entry.show()
         self.entries.append(name_entry)
 
-        comment_label = gtk.Label('Comment:')
+        comment_label = gtk.Label(_('Comment:'))
         comment_label.set_alignment(0, 0.5)
         table.attach(comment_label, 0, 1, 1, 2, gtk.FILL)
         comment_label.show()
@@ -295,13 +295,13 @@ class MenuEditor(gtk.Dialog):
         comment_entry.show()
         self.entries.append(comment_entry)
 
-        icon_label = gtk.Label('Icon:')
+        icon_label = gtk.Label(_('Icon:'))
         icon_label.set_alignment(0, 0.5)
         table.attach(icon_label, 0, 1, 2, 3, gtk.FILL)
         icon_label.show()
         icon_box = gtk.HBox()
         icon_box.set_spacing(3)
-        icon_button = gtk.Button('No Icon')
+        icon_button = gtk.Button(_('No Icon'))
         icon_button.set_size_request(64, 64)
         icon_button.connect('clicked', self.gui.selectIcon)
         try:
@@ -323,7 +323,7 @@ class MenuEditor(gtk.Dialog):
         table.attach(icon_box, 1, 2, 2, 3, gtk.FILL, gtk.FILL)
         icon_box.show()
 
-        parent_label = gtk.Label('Parent:')
+        parent_label = gtk.Label(_('Parent:'))
         parent_label.set_alignment(0, 0.5)
         table.attach(parent_label, 0, 1, 3, 4, gtk.FILL)
         parent_label.show()

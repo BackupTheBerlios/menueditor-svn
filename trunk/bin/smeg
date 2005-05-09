@@ -21,6 +21,9 @@
   (C) Copyright 2005 Travis Watkins
 """
 
+import gettext
+gettext.install('smeg')
+
 import os, sys, string
 dir = os.path.split(sys.argv[0])[0]
 prefix = os.path.split(dir)[0]
@@ -111,12 +114,12 @@ class MainWindow(gtk.Window):
             </menubar>
         </ui>"""
         actions = [
-            ('File', None, '_File'),
-                ('New Entry', gtk.STOCK_NEW, '_New Entry', '<Control>N', None, self.newEntry),
-                ('New Menu', None, 'New _Menu', None, None, self.newMenu),
-                ('Quit', gtk.STOCK_QUIT, '_Quit', '<Control>Q', None, lambda *a: gtk.main_quit()),
-            ('Help', None, '_Help'),
-                ('About', None, '_About Menu Editor', None, None, self.showAbout)
+            ('File', None, _('_File')),
+                ('New Entry', gtk.STOCK_NEW, _('_New Entry'), '<Control>N', None, self.newEntry),
+                ('New Menu', None, _('New _Menu'), None, None, self.newMenu),
+                ('Quit', gtk.STOCK_QUIT, _('_Quit'), '<Control>Q', None, lambda *a: gtk.main_quit()),
+            ('Help', None, _('_Help')),
+                ('About', None, _('_About Menu Editor'), None, None, self.showAbout)
             ]
         ag = gtk.ActionGroup('MenuEditorActions')
         ag.add_actions(actions)
