@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=0.5
+Encoding=UTF-8
+Name=Smeg Menu Editor
+Comment=Simple Menu Editor for GNOME
+Exec=smeg
+Icon=smeg.png
+Terminal=false
+StartupNotify=true
+Type=Application
+Categories=Application;System;
