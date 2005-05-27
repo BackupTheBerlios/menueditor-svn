@@ -127,6 +127,14 @@ class MenuHandler:
                         entries.append(entry)
         return entries
 
+    def moveMenuUp(self, menu):
+        index = menu.Parent.Submenus.index(menu)
+        print index
+        if index != 0:
+            parent = menu.Parent
+            before = menu.Parent.Submenus[index - 1]
+            self.editor.moveMenu(menu, newparent=parent, before=before)
+
     def toggleEntryVisible(self, entry, visible):
         if visible:
             self.editor.hideEntry(entry)
@@ -146,7 +154,7 @@ class MenuHandler:
         self.editor.revertMenu(menu)
 
     def moveEntry(self, entry, oldparent, newparent):
-        self.editor.moveEntry(entry, oldparent, newparent)
+        self.editor.moveEntry(entry, newparent, oldparent)
 
     def newMenu(self, parent, name, comment, icon):
         self.editor.createMenu(parent, name, comment, icon)

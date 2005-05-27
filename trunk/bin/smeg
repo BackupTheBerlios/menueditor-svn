@@ -499,6 +499,13 @@ class Smeg:
         self.w('preferences').hide()
         return True
 
+    def on_mmoveup_clicked(self, button):
+        if self.menu_path:
+            menu = self.menu_store[self.menu_path][3]
+            if self.menu_store.iter_parent(self.menu_store.get_iter(self.menu_path)) != None:
+                self.handler.moveMenuUp(menu)
+                gobject.timeout_add(100, self.reloadSmeg)
+
     def run(self):
         signals = {}
         for attr in dir(self):
