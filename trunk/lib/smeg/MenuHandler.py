@@ -26,7 +26,7 @@ if prefix == '': prefix = '.'
 libdir = os.path.join(prefix, 'lib/smeg')
 sys.path = [libdir] + sys.path
 
-import xdg.Menu, xdg.Config, xdg.BaseDirectory, xdg.DesktopEntry, xdg.IniFile
+import xdg.Menu, xdg.Config, xdg.IniFile, xdg.MenuEditor
 import xdg.IconTheme
 import string, locale
 import xml.dom.minidom, xml.dom
@@ -43,17 +43,7 @@ class MenuHandler:
         except:
             self.locale = None
 
-        config_dir = xdg.BaseDirectory.save_config_path('menus')
-        self.menu_path = os.path.join(config_dir, 'applications.menu')
-        root_config = os.path.join(xdg.BaseDirectory.xdg_config_dirs[1], 'menus/applications.menu')
-        if not os.access(self.menu_path, os.F_OK):
-            open(self.menu_path, 'w').write(
-"""<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN" "http://standards.freedesktop.org/menu-spec/menu-1.0.dtd">
-<Menu>
-  <Name>Applications</Name>
-  <MergeFile type="parent">""" + root_config + """</MergeFile>
-</Menu>""")
-        self.domtree = xml.dom.minidom.parse(self.menu_path)
+        self.editor = xdg.MenuEditor.MenuEditor()
         self.getIconThemes()
 
     def setWM(self, wm):
@@ -103,85 +93,15 @@ class MenuHandler:
                 i += 1
         return path
 
-    def getName(self, name):
-        ac_s = string.maketrans('', '')
-        ab_s = string.lowercase + string.uppercase + '0123456789'
-        return name.translate(ac_s, ac_s.translate(ac_s, ab_s)).lower()
+    def save(self):
+        self.editor.save()
 
-    def appendTextElement(self, parent, name, text):
-        node = self.domtree.createElement(name)
-        text = self.domtree.createTextNode(text)
-        node.appendChild(text)
-        return parent.appendChild(node)
-
-    def appendExcludeFileName(self, element, filename):
-        exclude_node = self.domtree.createElement('Exclude')
-        filename_node = self.domtree.createElement('Filename')
-        text = self.domtree.createTextNode(filename)
-        exclude_node.appendChild(filename_node)
-        filename_node.appendChild(text)
-        return element.appendChild(exclude_node)
-
-    def appendIncludeFileName(self, element, filename):
-        include_node = self.domtree.createElement('Include')
-        filename_node = self.domtree.createElement('Filename')
-        text = self.domtree.createTextNode(filename)
-        include_node.appendChild(filename_node)
-        filename_node.appendChild(text)
-        return element.appendChild(include_node)
-
-    def getLastChildNamed(self, parent, nodeName, nodeValue = False, create = False):
-        children = parent.childNodes[:]
-        children.reverse()
-        for child in children:
-            if child.nodeType == xml.dom.Node.ELEMENT_NODE and child.nodeName == nodeName:
-                if nodeValue and child.hasChildNodes() and child.childNodes[0].nodeValue == nodeValue:
-                    return child
-                elif not nodeValue:
-                    return child
-        if create and nodeValue:
-            return self.appendTextElement(parent, nodeName, nodeValue)
-        elif create:
-            return  parent.appendChild(self.Doc.createElement(nodeName))
-        return None
-
-    def appendMenuElement(self, parent, name):
-        el = self.domtree.createElement('Menu')
-        self.appendTextElement(el, 'Name', name)
-        temp = parent.appendChild(el)
-        self.writeMenuFile()
-        return temp
-
-    def getMenuFromPath(self, path, create=False, element=None):
-        if element == None:
-            element = self.domtree.documentElement
-
-        found = None
-        menus = path.split('/')
-        name = menus.pop(0)
-        
-        if self.getLastChildNamed(element, 'Name', name):
-            if len(menus):
-                children = element.childNodes[:]
-                children.reverse()
-                for child in children:
-                    if child.nodeType == xml.dom.Node.ELEMENT_NODE and child.nodeName == 'Menu':
-                        found = self.getMenuFromPath('/'.join(menus), create, child)
-                        if found: break
-                if not found and create:
-                    child = self.appendMenuElement(element, menus[0])
-                    found = self.getMenuFromPath('/'.join(menus), create, child)
-            else:
-                found = element
-            
-        return found
-
-    def writeMenuFile(self):
-        open(self.menu_path, 'w').write(self.domtree.toxml().replace('<?xml version="1.0" ?>\n', ''))
+    def parse(self):
+        self.editor.parse()
 
     def loadMenus(self, depth=1, menu=None):
         if not menu:
-            menu = xdg.Menu.parse()
+            menu = self.editor.menu
             self.depths = {0: None}
             self.depths[1] = self.renderer.addMenu(menu, self.depths, depth, menu.Show)
 
@@ -189,9 +109,9 @@ class MenuHandler:
         for entry in menu.getEntries(True):
             if isinstance(entry, xdg.Menu.Menu):
                 if entry.getName() != '':
-                    try:
+                    if entry.Directory:
                         entry.Type = entry.Directory.Type
-                    except:
+                    else:
                         entry.Type = 'System'
                     self.depths[depth] = self.renderer.addMenu(entry, self.depths, depth, entry.Show)
                     self.loadMenus(depth, entry)
@@ -201,102 +121,41 @@ class MenuHandler:
         entries = []
         for entry in menu.getEntries(True):
             if isinstance(entry, xdg.Menu.MenuEntry):
-                if entry.Show == 'Hidden' or entry.Show == True:
-                    entry.parent = menu
-                    entries.append(entry)
+                if '-usercustom' not in entry.DesktopFileID:
+                    if entry.Show == 'NoDisplay' or entry.Show == True:
+                        entry.parent = menu
+                        entries.append(entry)
         return entries
 
     def toggleEntryVisible(self, entry, visible):
-        desktop = entry.DesktopEntry
         if visible:
-            desktop.set('Hidden', 'true')
+            self.editor.hideEntry(entry)
         else:
-            desktop.set('Hidden', 'false')
-        entry.save()
+            self.editor.unhideEntry(entry)
 
     def toggleMenuVisible(self, menu, visible):
-        xmlmenu = self.getMenuFromPath(menu.getPath(True, True), True)
-
         if visible:
-            el = self.domtree.createElement('Deleted')
+            self.editor.hideMenu(menu)
         else:
-            el = self.domtree.createElement('NotDeleted')
-        xmlmenu.appendChild(el)
-        self.writeMenuFile()
+            self.editor.unhideMenu(menu)
 
-    def moveEntry(self, fileid, oldmenu, newmenu):
-        oldxml = self.getMenuFromPath(oldmenu.getPath(True, True), True)
-        newxml = self.getMenuFromPath(newmenu.getPath(True, True), True)
-        self.appendExcludeFileName(oldxml, fileid)
-        self.appendIncludeFileName(newxml, fileid)
-        self.writeMenuFile()
+    def revertEntry(self, entry):
+        self.editor.revertEntry(entry)
 
-    def newMenu(self, path, name, comment, icon):
-        xmlparent = self.getMenuFromPath(path, True)
-        menu = self.appendMenuElement(xmlparent, name)
-        directory = self.saveMenu(None, name, comment, icon)
-        el = self.appendTextElement(menu, 'Directory', directory)
-        self.writeMenuFile()
+    def revertMenu(self, menu):
+        self.editor.revertMenu(menu)
 
-    def saveMenu(self, entry, name, comment, icon):
-        new_entry = False
-        if not entry:
-            new_entry = True
-            desktop = xdg.DesktopEntry.DesktopEntry()
-            desktop.addGroup('Desktop Entry')
-            desktop.defaultGroup = 'Desktop Entry'
-            desktop.set('Encoding', 'UTF-8')
-            desktop.set('Type', 'Directory')
-            directory_name = self.getName(name) + '.directory'
-            desktop.new(directory_name)
-        else:
-            if not entry.Directory:
-                self.newMenu(os.path.split(entry.getPath(True, True))[0], name, comment, icon)
-                return
-            desktop = entry.Directory.DesktopEntry
-            directory_name = os.path.split(desktop.getFileName())[1]
-        desktop.set('Name', name)
-        desktop.set('Comment', comment)
-        if self.locale:
-            desktop.set('Name[' + str(self.locale) + ']', name)
-            desktop.set('Comment[' + str(self.locale) + ']', comment)
-        desktop.set('Icon', icon)
-        desktop.save()
-        return directory_name
+    def moveEntry(self, entry, oldparent, newparent):
+        self.editor.moveEntry(entry, oldparent, newparent)
 
-    def newEntry(self, path, name, comment, command, icon, term):
-        xmlparent = self.getMenuFromPath(path, True)
-        entry = self.saveEntry(None, name, comment, command, icon, term)
-        el = self.appendIncludeFileName(xmlparent, entry)
-        self.writeMenuFile()
+    def newMenu(self, parent, name, comment, icon):
+        self.editor.createMenu(parent, name, comment, icon)
+
+    def saveMenu(self, menu, name, comment, icon):
+        self.editor.editMenu(menu, name, None, comment, icon)
+
+    def newEntry(self, parent, name, comment, command, icon, term):
+        self.editor.createEntry(parent, name, command, comment, icon, term)
 
     def saveEntry(self, entry, name, comment, command, icon, term):
-        new_entry = False
-        if not entry:
-            new_entry = True
-            desktop = xdg.DesktopEntry.DesktopEntry()
-            desktop.addGroup('Desktop Entry')
-            desktop.defaultGroup = 'Desktop Entry'
-            desktop.set('Encoding', 'UTF-8')
-            desktop.set('Type', 'Application')
-            desktop_name = self.getName(name) + '.desktop'
-            desktop.new(desktop_name)
-        else:
-            desktop = entry.DesktopEntry
-            desktop_name = entry.DesktopFileID
-        desktop.set('Name', name)
-        desktop.set('Comment', comment)
-        if self.locale:
-            desktop.set('Name[' + str(self.locale) + ']', name)
-            desktop.set('Comment[' + str(self.locale) + ']', comment)
-        desktop.set('Exec', command)
-        desktop.set('Icon', icon)
-        if term == True:
-            desktop.set('Terminal', 'true')
-        else:
-            desktop.set('Terminal', 'false')
-        if new_entry:
-            desktop.save()
-        else:
-            entry.save()
-        return desktop_name
+        self.editor.editEntry(entry, name, None, comment, command, icon, term)
