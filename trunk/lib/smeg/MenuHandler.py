@@ -99,9 +99,18 @@ class MenuHandler:
     def parse(self):
         self.editor.parse()
 
+    def quit(self):
+        nodes = self.editor.doc.getElementsByTagName('Merge')
+        for node in nodes:
+            parent = node.parentNode
+            parent.removeChild(node)
+            parent.appendChild(node)
+        self.save()
+
     def loadMenus(self, depth=1, menu=None):
         if not menu:
             menu = self.editor.menu
+            menu.IsSeparator = False
             self.depths = {0: None}
             self.depths[1] = self.renderer.addMenu(menu, self.depths, depth, menu.Show)
 
@@ -113,8 +122,12 @@ class MenuHandler:
                         entry.Type = entry.Directory.Type
                     else:
                         entry.Type = 'System'
+                    entry.IsSeparator = False
                     self.depths[depth] = self.renderer.addMenu(entry, self.depths, depth, entry.Show)
                     self.loadMenus(depth, entry)
+            elif isinstance(entry, xdg.Menu.Separator):
+                entry.IsSeparator = True
+                self.depths[depth] = self.renderer.addMenu(entry, self.depths, depth, True)
         depth -= 1
 
     def loadEntries(self, menu):
@@ -123,17 +136,65 @@ class MenuHandler:
             if isinstance(entry, xdg.Menu.MenuEntry):
                 if '-usercustom' not in entry.DesktopFileID:
                     if entry.Show == 'NoDisplay' or entry.Show == True:
-                        entry.parent = menu
+                        entry.Parent = menu
+                        entry.IsSeparator = False
                         entries.append(entry)
+            if isinstance(entry, xdg.Menu.Separator):
+                entry.Parent = menu
+                entry.IsSeparator = True
+                if not menu == self.editor.menu:
+                    entries.append(entry)
         return entries
 
+    def moveEntry(self, entry, oldparent, newparent):
+        self.editor.moveEntry(entry, oldparent, newparent)
+
+    def moveMenu(self, menu, oldparent, newparent):
+        self.editor.moveMenu(menu, oldparent, newparent)
+
+    def moveEntryUp(self, entry):
+        index = entry.Parent.Entries.index(entry)
+        if index != 0:
+            parent = entry.Parent
+            before = entry.Parent.Entries[index - 1]
+            if entry.IsSeparator:
+                self.editor.moveSeparator(entry, parent, before=before)
+            else:
+                self.editor.moveEntry(entry, parent, parent, before=before)
+            return True
+
     def moveMenuUp(self, menu):
-        index = menu.Parent.Submenus.index(menu)
-        print index
+        index = menu.Parent.Entries.index(menu)
         if index != 0:
             parent = menu.Parent
-            before = menu.Parent.Submenus[index - 1]
-            self.editor.moveMenu(menu, newparent=parent, before=before)
+            before = menu.Parent.Entries[index - 1]
+            if menu.IsSeparator:
+                self.editor.moveSeparator(menu, parent, before=before)
+            else:
+                self.editor.moveMenu(menu, parent, parent, before=before)
+            return True
+
+    def moveEntryDown(self, entry):
+        index = entry.Parent.Entries.index(entry)
+        if index != len(entry.Parent.Entries) - 1:
+            parent = entry.Parent
+            after = entry.Parent.Entries[index + 1]
+            if entry.IsSeparator:
+                self.editor.moveSeparator(entry, parent, before=before)
+            else:
+                self.editor.moveEntry(entry, parent, parent, after=after)
+            return True
+
+    def moveMenuDown(self, menu):
+        index = menu.Parent.Entries.index(menu)
+        if index != len(menu.Parent.Entries) - 1:
+            parent = menu.Parent
+            after = menu.Parent.Entries[index + 1]
+            if menu.IsSeparator:
+                self.editor.moveSeparator(menu, parent, after=after)
+            else:
+                self.editor.moveMenu(menu, parent, parent, after=after)
+            return True
 
     def toggleEntryVisible(self, entry, visible):
         if visible:
@@ -153,17 +214,42 @@ class MenuHandler:
     def revertMenu(self, menu):
         self.editor.revertMenu(menu)
 
-    def moveEntry(self, entry, oldparent, newparent):
-        self.editor.moveEntry(entry, newparent, oldparent)
+    def newEntry(self, parent, name, comment, command, icon, term):
+        if parent == 'Applications':
+            parent = self.editor.menu
+        self.editor.createEntry(parent, name, command, None, comment, icon, term)
 
     def newMenu(self, parent, name, comment, icon):
-        self.editor.createMenu(parent, name, comment, icon)
+        print parent, type(parent)
+        if parent == 'Applications':
+            parent = self.editor.menu
+        print parent, type(parent)
+        self.editor.createMenu(parent, name, None, comment, icon)
+
+    def newSeparator(self, entry):
+        if entry == None or entry == self.editor.menu:
+            parent = self.editor.menu
+            after = parent.Entries[-1]
+        else:
+            parent = entry.Parent
+            index = parent.Entries.index(entry)
+            after = parent.Entries[index]
+        self.editor.createSeparator(parent, after=after)
+
+    def saveEntry(self, entry, name, comment, command, icon, term):
+        self.editor.editEntry(entry, name, None, comment, command, icon, term)
 
     def saveMenu(self, menu, name, comment, icon):
         self.editor.editMenu(menu, name, None, comment, icon)
 
-    def newEntry(self, parent, name, comment, command, icon, term):
-        self.editor.createEntry(parent, name, command, comment, icon, term)
+    def deleteEntry(self, entry):
+        if entry.IsSeparator:
+            self.editor.deleteSeparator(entry)
+        else:
+            self.editor.deleteEntry(entry)
 
-    def saveEntry(self, entry, name, comment, command, icon, term):
-        self.editor.editEntry(entry, name, None, comment, command, icon, term)
+    def deleteMenu(self, menu):
+        if menu.IsSeparator:
+            self.editor.deleteSeparator(menu)
+        else:
+            self.editor.deleteMenu(menu)

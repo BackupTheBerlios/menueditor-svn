@@ -39,6 +39,7 @@ class Smeg:
     dnd_targets = [('MY_TREE_MODEL_ROW', gtk.TARGET_SAME_APP, 0)]
     menu_path = None
     entry_path = None
+    allow_move = True
     icon_cache = {}
 
     def __init__(self):
@@ -93,6 +94,8 @@ class Smeg:
     def getMenuIcon(self, menu, size=24, text=False):
         if text:
             return self.getIcon(menu, 'gnome-fs-directory', size)
+        if menu.IsSeparator:
+            return self.getIcon('', '', size)
         if self.icon_cache.has_key(menu.getIcon() + '-' + str(size)):
             return self.icon_cache[menu.getIcon() + '-' + str(size)]
         if len(menu.getIcon()):
@@ -127,10 +130,10 @@ class Smeg:
         self.menu_store = gtk.TreeStore(bool, gtk.gdk.Pixbuf, str, object)
         menus.set_model(self.menu_store)
         menus.enable_model_drag_dest(self.dnd_targets, gtk.gdk.ACTION_PRIVATE)
-#        menus.enable_model_drag_source(gtk.gdk.BUTTON1_MASK, self.dnd_targets,
-#            gtk.gdk.ACTION_MOVE | gtk.gdk.ACTION_DEFAULT)
+        menus.enable_model_drag_source(gtk.gdk.BUTTON1_MASK, self.dnd_targets,
+            gtk.gdk.ACTION_MOVE | gtk.gdk.ACTION_DEFAULT)
         menus.connect('drag_data_received', self.on_menus_drag_data_received_data)
-#        menus.connect('drag_data_get', self.on_menus_drag_data_get_data)
+        menus.connect('drag_data_get', self.on_menus_drag_data_get_data)
 
     def setupEntriesTree(self):
         entries = self.tree.get_widget('entries')
@@ -163,22 +166,17 @@ class Smeg:
     def setupMenuDialog(self, menu=None, parent=None):
         self.w('miconbutton').my_icon_name = None
         if menu:
-            if menu.Directory:
-                entry = menu.Directory.DesktopEntry
-                self.w('mnameentry').set_text(entry.getName())
-                self.w('mcommententry').set_text(entry.getComment())
-                image = gtk.Image()
-                pb = self.getMenuIcon(entry, 48)
-                image.set_from_pixbuf(pb)
-                image.show()
-                self.w('miconbutton').my_icon_name = entry.getIcon() 
-                self.w('miconbutton').remove(self.w('miconbutton').get_child())
-                self.w('miconbutton').add(image)
-                if self.icon_cache.has_key(menu.getName()):
-                    del self.icon_cache[menu.getName()]
-            else:
-                self.w('mnameentry').set_text(menu.getName())
-
+            self.w('mnameentry').set_text(menu.getName())
+            self.w('mcommententry').set_text(menu.getComment())
+            image = gtk.Image()
+            pb = self.getMenuIcon(menu, 48)
+            image.set_from_pixbuf(pb)
+            image.show()
+            self.w('miconbutton').my_icon_name = menu.getIcon() 
+            self.w('miconbutton').remove(self.w('miconbutton').get_child())
+            self.w('miconbutton').add(image)
+            if self.icon_cache.has_key(menu.getName()):
+                del self.icon_cache[menu.getName()]
 
         self.w('menudialog').show()
         response = self.w('menudialog').run()
@@ -196,7 +194,7 @@ class Smeg:
                         self.w('mcommententry').get_text(),
                         self.w('miconbutton').my_icon_name or None
                         )
-                gobject.timeout_add(100, self.reloadSmeg)
+                gobject.timeout_add(120, self.reloadSmeg)
         self.resetMenuDialog()
 
     def resetMenuDialog(self):
@@ -242,7 +240,7 @@ class Smeg:
                         self.w('eiconbutton').my_icon_name or None,
                         self.w('etermcheck').get_active()
                         )
-                gobject.timeout_add(100, self.reloadSmeg)
+                gobject.timeout_add(120, self.reloadSmeg)
         self.resetEntryDialog()
 
     def resetEntryDialog(self):
@@ -262,29 +260,32 @@ class Smeg:
             self.w('menus').expand_to_path(menu.path)
         if self.menu_path != None:
             self.w('menus').expand_to_path(self.menu_path)
-            self.w('menus').get_selection().select_path(self.menu_path)
 
     def getEntries(self, menu):
         self.entry_store.clear()
         entries = self.handler.loadEntries(menu)
         for entry in entries:
-            desktop = entry.DesktopEntry
-            pixbuf = self.getEntryIcon(desktop)
-            show = True
-            if entry.Show != True:
-                show = False
-            self.entry_store.append([show, pixbuf, desktop.getName(), entry])
-        if self.entry_path != None:
-            self.w('entries').get_selection().select_path(self.entry_path)
+            if entry.IsSeparator:
+                pixbuf = self.getMenuIcon(entry)
+                self.entry_store.append([True, pixbuf, '-----', entry])
+            else:
+                desktop = entry.DesktopEntry
+                pixbuf = self.getEntryIcon(desktop)
+                show = True
+                if entry.Show != True:
+                    show = False
+                self.entry_store.append([show, pixbuf, desktop.getName(), entry])
 
     def addMenu(self, entry, depths, depth, show):
         edited = False
-        if entry.getName() == 'Applications':
+        if not entry.IsSeparator and entry.getName() == 'Applications':
             pixbuf = self.getMenuIcon('gnome-main-menu', text=True)
         else:
             pixbuf = self.getMenuIcon(entry)
         if show != True:
             show = False
+        if entry.IsSeparator:
+            return self.menu_store.append(depths[depth-1], [show, pixbuf, '-----', entry])
         return self.menu_store.append(depths[depth-1], [show, pixbuf, entry.getName(), entry])
 
     def chooseFile(self, image=False):
@@ -319,11 +320,13 @@ class Smeg:
             button.add(image)
 
     def reloadSmeg(self, reparse=False):
-        self.handler.save()
-        if reparse:
-            self.handler.parse()
+#        self.handler.save()
+#        if reparse:
+#            self.handler.parse()
         self.getMenus()
-        self.getEntries(self.menu_store[self.menu_path][3])
+        if self.menu_path and not self.menu_store[self.menu_path][3].IsSeparator:
+            self.getEntries(self.menu_store[self.menu_path][3])
+        self.allow_move = True
 
     def on_miconbutton_clicked(self, button):
         self.selectIcon(button)
@@ -365,28 +368,28 @@ class Smeg:
             if source == 'entries':
                 if model.iter_parent(iter) != None:
                     entry = self.entry_store[source_path][3]
-                    self.handler.moveEntry(entry, entry.parent,
+                    self.handler.moveEntry(entry, entry.Parent,
                         model[path][3])
             elif source == 'menus':
                 menu = self.menu_store[source_path][3]
-                print menu.getPath(True, True), model[path][3].getPath(True, True)
-                self.handler.moveMenu(menu, model[path][3])
+                self.handler.moveMenu(menu, menu.Parent, model[path][3])
             context.finish(True, True, etime)
-            gobject.timeout_add(100, self.reloadSmeg, True)
+            gobject.timeout_add(120, self.reloadSmeg, True)
         return
 
     def on_menu_visible_toggled(self, cell, path):
         if self.menu_store.iter_parent(self.menu_store.get_iter(path)) != None:
             menu = self.menu_store[path][3]
-            if menu.Show != 'Empty':
+            if not menu.IsSeparator and menu.Show != 'Empty':
                 self.menu_store[path][0] = not self.menu_store[path][0]
-            self.handler.toggleMenuVisible(menu, not self.menu_store[path][0])
+                self.handler.toggleMenuVisible(menu, not self.menu_store[path][0])
 
     def on_entry_visible_toggled(self, cell, path):
         self.entry_store[path][0] = not self.entry_store[path][0]
-        entry = self.entry_store[path][3]
-        self.handler.toggleEntryVisible(entry, not self.entry_store[path][0])
-        gobject.timeout_add(100, self.reloadSmeg)
+        if not self.entry_store[path][3].IsSeparator:
+            entry = self.entry_store[path][3]
+            self.handler.toggleEntryVisible(entry, not self.entry_store[path][0])
+            gobject.timeout_add(120, self.reloadSmeg)
 
     def on_tree_button_press_event(self, treeview, event):
         if event.button == 3:
@@ -403,10 +406,23 @@ class Smeg:
                         return 1
                 treeview.grab_focus()
                 treeview.set_cursor(path, col, 0)
-                if model[path][3].Type == 'Both':
-                    self.w('revertpopup').set_sensitive(True)
-                else:
+                if model[path][3].IsSeparator:
                     self.w('revertpopup').set_sensitive(False)
+                    self.w('propertiespopup').set_sensitive(False)
+                    self.w('deletepopup').set_sensitive(True)
+                else:
+                    if model[path][3].Type == 'Both':
+                        self.w('revertpopup').set_sensitive(True)
+                        self.w('propertiespopup').set_sensitive(True)
+                        self.w('deletepopup').set_sensitive(False)
+                    elif model[path][3].Type == 'User':
+                        self.w('revertpopup').set_sensitive(False)
+                        self.w('propertiespopup').set_sensitive(True)
+                        self.w('deletepopup').set_sensitive(True)
+                    else:
+                        self.w('revertpopup').set_sensitive(False)
+                        self.w('propertiespopup').set_sensitive(True)
+                        self.w('deletepopup').set_sensitive(False)
                 self.w('popup').popup( None, None, None, event.button, time)
             return 1
 
@@ -418,19 +434,30 @@ class Smeg:
         elif menu_iter:
             self.setupMenuDialog(self.menu_store.get_value(menu_iter, 3))
 
-    def on_revertpopup_activate(self, *args):
+    def on_revertchanges_activate(self, *args):
         if self.entry_path:
             self.handler.revertEntry(self.entry_store[self.entry_path][3])
         elif self.menu_path:
             self.handler.revertMenu(self.menu_store[self.menu_path][3])
         gobject.timeout_add(120, self.reloadSmeg)
 
+    def on_delete_activate(self, *args):
+        if self.entry_path:
+            self.handler.deleteEntry(self.entry_store[self.entry_path][3])
+        elif self.menu_path:
+            self.handler.deleteMenu(self.menu_store[self.menu_path][3])
+        self.menu_path = None
+        self.entry_path = None
+        gobject.timeout_add(120, self.reloadSmeg, True)
+
     def on_menus_cursor_changed(self, treeview):
         model, iter = treeview.get_selection().get_selected()
         self.menu_path = model.get_path(iter)
         self.entry_path = None
-        self.w('entries').get_selection().unselect_all()
-        self.getEntries(model.get_value(iter, 3))
+        menu = model[self.menu_path][3]
+        if not menu.IsSeparator:
+            self.w('entries').get_selection().unselect_all()
+            self.getEntries(menu)
 
     def on_entries_cursor_changed(self, treeview):
         model, iter = treeview.get_selection().get_selected()
@@ -448,10 +475,17 @@ class Smeg:
             parent = self.menu_store[self.menu_path][3]
         self.setupEntryDialog(parent=parent)
 
-    def on_mainwindow_destroy(self, window):
-        gtk.main_quit()
+    def on_newseparator_clicked(self, button):
+        entry = None
+        if self.entry_path:
+            entry = self.entry_store[self.entry_path][3]
+        elif self.menu_path:
+            entry = self.menu_store[self.menu_path][3]
+        self.handler.newSeparator(entry)
+        gobject.timeout_add(120, self.reloadSmeg, True)
 
-    def on_filequit_activate(self, menu):
+    def on_mainwindow_destroy(self, window):
+        self.handler.quit()
         gtk.main_quit()
 
     def on_helpabout_activate(self, menu):
@@ -490,7 +524,7 @@ class Smeg:
             self.config['custom_theme_name'] = theme
             self.handler.setWM(self.config['desktop_environment'])
             self.handler.getIconThemes()
-            gobject.timeout_add(100, self.reloadSmeg)
+            gobject.timeout_add(120, self.reloadSmeg)
         self.w('prefcombo').set_model(None)
         self.w('prefcombo').clear()
         self.w('preferences').hide()
@@ -500,11 +534,46 @@ class Smeg:
         return True
 
     def on_mmoveup_clicked(self, button):
+        if not self.allow_move:
+            return
         if self.menu_path:
             menu = self.menu_store[self.menu_path][3]
             if self.menu_store.iter_parent(self.menu_store.get_iter(self.menu_path)) != None:
-                self.handler.moveMenuUp(menu)
-                gobject.timeout_add(100, self.reloadSmeg)
+                if self.handler.moveMenuUp(menu):
+                    self.allow_move = False
+                    self.menu_path = self.menu_path[0:-1] + (self.menu_path[-1] - 1,)
+                    gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_mmovedown_clicked(self, button):
+        if not self.allow_move:
+            return
+        if self.menu_path:
+            menu = self.menu_store[self.menu_path][3]
+            if self.menu_store.iter_parent(self.menu_store.get_iter(self.menu_path)) != None:
+                if self.handler.moveMenuDown(menu):
+                    self.allow_move = False
+                    self.menu_path = self.menu_path[0:-1] + (self.menu_path[-1] + 1,)
+                    gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_emoveup_clicked(self, button):
+        if not self.allow_move:
+            return
+        if self.entry_path:
+            entry = self.entry_store[self.entry_path][3]
+            if self.handler.moveEntryUp(entry):
+                self.allow_move = False
+                self.entry_path = (self.entry_path[0] - 1,)
+                gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_emovedown_clicked(self, button):
+        if not self.allow_move:
+            return
+        if self.entry_path:
+            entry = self.entry_store[self.entry_path][3]
+            if self.handler.moveEntryDown(entry):
+                self.allow_move = False
+                self.entry_path = (self.entry_path[0] - 1,)
+                gobject.timeout_add(120, self.reloadSmeg)
 
     def run(self):
         signals = {}
