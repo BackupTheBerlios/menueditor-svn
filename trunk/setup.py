@@ -9,7 +9,7 @@ from distutils.core import setup
 import glob
 
 setup(name = "Smeg",
-      version = '0.6.2',
+      version = '0.7',
       description = "Simple Menu Editor for GNOME",
       author = "Travis Watkins",
       url = "http://www.realistanew.com/projects/smeg/",

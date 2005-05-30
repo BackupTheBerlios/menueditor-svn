@@ -20,7 +20,7 @@
 
 import gconf
 
-version = '0.6.3'
+version = '0.7'
 
 class Configuration:
     def __init__(self, path):

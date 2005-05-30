@@ -20,7 +20,7 @@
 #
 #  (C) Copyright 2005 Travis Watkins
 
-import os, sys, pickle
+import os, sys, pickle, cgi
 cmddir = os.path.split(sys.argv[0])[0]
 prefix = os.path.split(cmddir)[0]
 if prefix == '': prefix = '.'
@@ -28,11 +28,13 @@ libdir = os.path.join(prefix, 'lib/smeg')
 sys.path = [libdir] + sys.path
 
 from MenuHandler import MenuHandler
+from DialogHandler import DialogHandler
 import config
 
 import pygtk
 pygtk.require('2.0')
 import gtk, gtk.glade, gobject
+import xdg.Menu
 
 class Smeg:
 
@@ -65,22 +67,8 @@ class Smeg:
         except:
             self.icon = None
 
-    def getIcon(self, name, default='application-default-icon', size=24):
-        if name.startswith('debian') and name != 'debian-logo':
-            try:
-                path = os.path.join('/usr/share/pixmaps', name)
-                pb = gtk.gdk.pixbuf_new_from_file_at_size(path, size, size)
-            except:
-                path = self.handler.getIconPath(default, size)
-                if path == None:
-                    pb = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, size, size)
-                    pb.fill(0x00000000)
-                else:
-                   pb = gtk.gdk.pixbuf_new_from_file_at_size(path, size, size) 
-            return pb
-        path = self.handler.getIconPath(name, size)
-        if path == None:
-            path = self.handler.getIconPath(default, size)
+    def getIcon(self, entry, size=24):
+        path = self.handler.getIconPath(entry, size)
         if path == None:
             pb = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, size, size)
             pb.fill(0x00000000)
@@ -88,46 +76,22 @@ class Smeg:
             pb = gtk.gdk.pixbuf_new_from_file_at_size(path, size, size)
         return pb
 
-    def getEntryIcon(self, entry, size=24):
-        return self.getIcon(entry.getIcon(), 'application-default-icon')
-
-    def getMenuIcon(self, menu, size=24, text=False):
-        if text:
-            return self.getIcon(menu, 'gnome-fs-directory', size)
-        if menu.IsSeparator:
-            return self.getIcon('', '', size)
-        if self.icon_cache.has_key(menu.getIcon() + '-' + str(size)):
-            return self.icon_cache[menu.getIcon() + '-' + str(size)]
-        if len(menu.getIcon()):
-            self.icon_cache[menu.getIcon() + '-' + str(size)] = self.getIcon(menu.getIcon(), 'gnome-fs-directory', size)
-            return self.icon_cache[menu.getIcon() + '-' + str(size)]
-        else:
-            return self.getIcon('', 'gnome-fs-directory', size)
-
     def setupMenusTree(self):
         menus = self.tree.get_widget('menus')
-        column = gtk.TreeViewColumn('Visible')
-
-        cell = gtk.CellRendererToggle()
-        cell.connect('toggled', self.on_menu_visible_toggled)
-        column.pack_start(cell, True)
-        column.set_attributes(cell, active=0)
-        menus.append_column(column)
-
         column = gtk.TreeViewColumn('Name')
         column.set_spacing(6)
 
         cell = gtk.CellRendererPixbuf()
         column.pack_start(cell, False)
-        column.set_attributes(cell, pixbuf=1)
+        column.set_attributes(cell, pixbuf=0)
 
         cell = gtk.CellRendererText()
         column.pack_start(cell, True)
-        column.set_attributes(cell, text=2)
+        column.set_attributes(cell, markup=1)
         menus.append_column(column)
         menus.set_expander_column(column)
 
-        self.menu_store = gtk.TreeStore(bool, gtk.gdk.Pixbuf, str, object)
+        self.menu_store = gtk.TreeStore(gtk.gdk.Pixbuf, str, object)
         menus.set_model(self.menu_store)
         menus.enable_model_drag_dest(self.dnd_targets, gtk.gdk.ACTION_PRIVATE)
         menus.enable_model_drag_source(gtk.gdk.BUTTON1_MASK, self.dnd_targets,
@@ -154,353 +118,185 @@ class Smeg:
 
         cell = gtk.CellRendererText()
         column.pack_start(cell, True)
-        column.set_attributes(cell, text=2)
+        column.set_attributes(cell, markup=2)
         entries.append_column(column)
 
         self.entry_store = gtk.ListStore(bool, gtk.gdk.Pixbuf, str, object)
         entries.set_model(self.entry_store)
+        entries.enable_model_drag_dest(self.dnd_targets, gtk.gdk.ACTION_PRIVATE)
         entries.enable_model_drag_source(gtk.gdk.BUTTON1_MASK, self.dnd_targets,
             gtk.gdk.ACTION_MOVE | gtk.gdk.ACTION_DEFAULT)
+        entries.connect('drag_data_received', self.on_entries_drag_data_received_data)
         entries.connect('drag_data_get', self.on_entries_drag_data_get_data)
-
-    def setupMenuDialog(self, menu=None, parent=None):
-        self.w('miconbutton').my_icon_name = None
-        if menu:
-            self.w('mnameentry').set_text(menu.getName())
-            self.w('mcommententry').set_text(menu.getComment())
-            image = gtk.Image()
-            pb = self.getMenuIcon(menu, 48)
-            image.set_from_pixbuf(pb)
-            image.show()
-            self.w('miconbutton').my_icon_name = menu.getIcon() 
-            self.w('miconbutton').remove(self.w('miconbutton').get_child())
-            self.w('miconbutton').add(image)
-            if self.icon_cache.has_key(menu.getName()):
-                del self.icon_cache[menu.getName()]
-
-        self.w('menudialog').show()
-        response = self.w('menudialog').run()
-        if response == gtk.RESPONSE_OK:
-            if len(self.w('mnameentry').get_text()) > 0:
-                if menu:
-                    self.handler.saveMenu(menu,
-                        self.w('mnameentry').get_text(),
-                        self.w('mcommententry').get_text(),
-                        self.w('miconbutton').my_icon_name or None
-                        )
-                elif parent:
-                    self.handler.newMenu(parent,
-                        self.w('mnameentry').get_text(),
-                        self.w('mcommententry').get_text(),
-                        self.w('miconbutton').my_icon_name or None
-                        )
-                gobject.timeout_add(120, self.reloadSmeg)
-        self.resetMenuDialog()
-
-    def resetMenuDialog(self):
-        self.w('mnameentry').set_text('')
-        self.w('mcommententry').set_text('')
-        self.w('miconbutton').remove(self.w('miconbutton').get_child())
-        self.w('miconbutton').set_label('No Icon')
-        self.w('miconbutton').my_icon_name = None
-        self.w('menudialog').hide()
-
-    def setupEntryDialog(self, entry=None, parent=None):
-        self.w('eiconbutton').my_icon_name = None
-        if entry:
-            desktop = entry.DesktopEntry
-            self.w('enameentry').set_text(desktop.getName())
-            self.w('ecommententry').set_text(desktop.getComment())
-            self.w('ecommandentry').set_text(desktop.getExec())
-            image = gtk.Image()
-            pb = self.getEntryIcon(desktop, 48)
-            image.set_from_pixbuf(pb)
-            image.show()
-            self.w('eiconbutton').my_icon_name = desktop.getIcon() 
-            self.w('eiconbutton').remove(self.w('eiconbutton').get_child())
-            self.w('eiconbutton').add(image)
-            if desktop.getTerminal() is True:
-                self.w('etermcheck').set_active(1)
-
-        self.w('entrydialog').show()
-        response = self.w('entrydialog').run()
-        if response == gtk.RESPONSE_OK:
-            if len(self.w('enameentry').get_text()) > 0:
-                if entry:
-                    self.handler.saveEntry(entry, self.w('enameentry').get_text(),
-                        self.w('ecommententry').get_text(),
-                        self.w('ecommandentry').get_text(),
-                        self.w('eiconbutton').my_icon_name or None,
-                        self.w('etermcheck').get_active()
-                        )
-                elif parent:
-                    self.handler.newEntry(parent, self.w('enameentry').get_text(),
-                        self.w('ecommententry').get_text(),
-                        self.w('ecommandentry').get_text(),
-                        self.w('eiconbutton').my_icon_name or None,
-                        self.w('etermcheck').get_active()
-                        )
-                gobject.timeout_add(120, self.reloadSmeg)
-        self.resetEntryDialog()
-
-    def resetEntryDialog(self):
-        self.w('enameentry').set_text('')
-        self.w('ecommententry').set_text('')
-        self.w('ecommandentry').set_text('')
-        self.w('eiconbutton').remove(self.w('eiconbutton').get_child())
-        self.w('eiconbutton').set_label('No Icon')
-        self.w('eiconbutton').my_icon_name = None
-        self.w('etermcheck').set_active(0)
-        self.w('entrydialog').hide()
 
     def getMenus(self):
         self.menu_store.clear()
         self.handler.loadMenus()
-        for menu in self.menu_store:
-            self.w('menus').expand_to_path(menu.path)
         if self.menu_path != None:
             self.w('menus').expand_to_path(self.menu_path)
+            self.w('menus').get_selection().select_path(self.menu_path)
+            self.w('menus').collapse_row(self.menu_path)
+        for menu in self.menu_store:
+            self.w('menus').expand_to_path(menu.path)
+
+    def addMenu(self, menu, depths, depth):
+        pixbuf = self.getIcon(menu)
+        show = True
+        if menu.Show != True:
+            show = False
+        name = cgi.escape(menu.getName())
+        if show == False:
+            name = '<span foreground="#888888">' + name + '</span>'
+        return self.menu_store.append(depths[depth-1], [pixbuf, name, menu])
 
     def getEntries(self, menu):
         self.entry_store.clear()
-        entries = self.handler.loadEntries(menu)
-        for entry in entries:
-            if entry.IsSeparator:
-                pixbuf = self.getMenuIcon(entry)
-                self.entry_store.append([True, pixbuf, '-----', entry])
-            else:
-                desktop = entry.DesktopEntry
-                pixbuf = self.getEntryIcon(desktop)
+        for entry in self.handler.loadEntries(menu):
+            pixbuf = self.getIcon(entry)
+            show = True
+            if entry.Show != True:
+                show = False
+            if isinstance(entry, xdg.Menu.Separator):
                 show = True
-                if entry.Show != True:
-                    show = False
-                self.entry_store.append([show, pixbuf, desktop.getName(), entry])
+                name = '-----'
+            elif isinstance(entry, xdg.Menu.MenuEntry):
+                name = cgi.escape(entry.DesktopEntry.getName())
+            else:
+                name = cgi.escape(entry.getName())
+            if show == False:
+                name = '<span foreground="#888888">' + name + '</span>'
+            self.entry_store.append([show, pixbuf, name, entry])
 
-    def addMenu(self, entry, depths, depth, show):
-        edited = False
-        if not entry.IsSeparator and entry.getName() == 'Applications':
-            pixbuf = self.getMenuIcon('gnome-main-menu', text=True)
-        else:
-            pixbuf = self.getMenuIcon(entry)
-        if show != True:
-            show = False
-        if entry.IsSeparator:
-            return self.menu_store.append(depths[depth-1], [show, pixbuf, '-----', entry])
-        return self.menu_store.append(depths[depth-1], [show, pixbuf, entry.getName(), entry])
-
-    def chooseFile(self, image=False):
-        buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL,
-            gtk.STOCK_OPEN, gtk.RESPONSE_ACCEPT)
-        action = gtk.FILE_CHOOSER_ACTION_OPEN
-        file_dialog = gtk.FileChooserDialog(action=action, buttons=buttons)
-        if image:
-            file_dialog.set_current_folder('/usr/share/pixmaps/')
-        response = file_dialog.run()
-        if response in (gtk.RESPONSE_ACCEPT, gtk.RESPONSE_OK):
-            selected_file = file_dialog.get_filename()
-        else:
-            selected_file = None
-        file_dialog.destroy()
-        return selected_file
-
-    def selectFile(self, entry):
-        selected_file = self.chooseFile()
-        if selected_file:
-            entry.set_text(selected_file)
-
-    def selectIcon(self, button):
-        selected_file = self.chooseFile(True)
-        if selected_file:
-            pixbuf = self.getIcon(selected_file, size=48)
-            image = gtk.Image()
-            image.set_from_pixbuf(pixbuf)
-            image.show()
-            button.my_icon_name = selected_file
-            button.remove(button.get_child())
-            button.add(image)
-
-    def reloadSmeg(self, reparse=False):
-#        self.handler.save()
-#        if reparse:
-#            self.handler.parse()
+    def reloadSmeg(self):
         self.getMenus()
-        if self.menu_path and not self.menu_store[self.menu_path][3].IsSeparator:
-            self.getEntries(self.menu_store[self.menu_path][3])
+        if self.menu_path:
+            self.getEntries(self.menu_store[self.menu_path][2])
+        if self.entry_path:
+            self.w('entries').get_selection().select_path(self.entry_path)
         self.allow_move = True
 
-    def on_miconbutton_clicked(self, button):
-        self.selectIcon(button)
-
-    def on_menudialog_delete_event(self, *args):
-        self.resetMenuDialog()
-        return True
-
-    def on_ecommandbutton_clicked(self, button):
-        self.selectFile(self.w('ecommandentry'))
-
-    def on_eiconbutton_clicked(self, button):
-        self.selectIcon(button)
-
-    def on_entrydialog_delete_event(self, *args):
-        self.resetEntryDialog()
-        return True
-
-    def on_menus_drag_data_get_data(self, treeview, context, selection, target_id, etime):
-        model, iter = treeview.get_selection().get_selected()
-        self.drag_path = self.menu_store.get_path(self.w('menus').get_selection().get_selected()[1])
-        path = pickle.dumps(model.get_path(iter))
-        selection.set(selection.target, 8, 'menus:::' + path)
-
-    def on_entries_drag_data_get_data(self, treeview, context, selection, target_id, etime):
-        model, iter = treeview.get_selection().get_selected()
-        self.drag_path = self.menu_store.get_path(self.w('menus').get_selection().get_selected()[1])
-        path = pickle.dumps(model.get_path(iter))
-        selection.set(selection.target, 8, 'entries:::' + path)
-
-    def on_menus_drag_data_received_data(self, treeview, context, x, y, selection, info, etime):
-        model = treeview.get_model()
-        source, source_path = selection.data.split(':::', 1)
-        source_path = pickle.loads(source_path)
-        drop_info = treeview.get_dest_row_at_pos(x, y)
-        if drop_info:
-            path, position = drop_info
-            iter = model.get_iter(path)
-            if source == 'entries':
-                if model.iter_parent(iter) != None:
-                    entry = self.entry_store[source_path][3]
-                    self.handler.moveEntry(entry, entry.Parent,
-                        model[path][3])
-            elif source == 'menus':
-                menu = self.menu_store[source_path][3]
-                self.handler.moveMenu(menu, menu.Parent, model[path][3])
-            context.finish(True, True, etime)
-            gobject.timeout_add(120, self.reloadSmeg, True)
-        return
-
-    def on_menu_visible_toggled(self, cell, path):
-        if self.menu_store.iter_parent(self.menu_store.get_iter(path)) != None:
-            menu = self.menu_store[path][3]
-            if not menu.IsSeparator and menu.Show != 'Empty':
-                self.menu_store[path][0] = not self.menu_store[path][0]
-                self.handler.toggleMenuVisible(menu, not self.menu_store[path][0])
-
-    def on_entry_visible_toggled(self, cell, path):
-        self.entry_store[path][0] = not self.entry_store[path][0]
-        if not self.entry_store[path][3].IsSeparator:
-            entry = self.entry_store[path][3]
-            self.handler.toggleEntryVisible(entry, not self.entry_store[path][0])
-            gobject.timeout_add(120, self.reloadSmeg)
-
-    def on_tree_button_press_event(self, treeview, event):
-        if event.button == 3:
-            x = int(event.x)
-            y = int(event.y)
-            time = event.time
-            pthinfo = treeview.get_path_at_pos(x, y)
-            if pthinfo != None:
-                path, col, cellx, celly = pthinfo
-                model = treeview.get_model()
-                iter = model.get_iter(path)
-                if model.iter_has_child(iter):
-                    if model.iter_parent(iter) == None:
-                        return 1
-                treeview.grab_focus()
-                treeview.set_cursor(path, col, 0)
-                if model[path][3].IsSeparator:
-                    self.w('revertpopup').set_sensitive(False)
-                    self.w('propertiespopup').set_sensitive(False)
-                    self.w('deletepopup').set_sensitive(True)
-                else:
-                    if model[path][3].Type == 'Both':
-                        self.w('revertpopup').set_sensitive(True)
-                        self.w('propertiespopup').set_sensitive(True)
-                        self.w('deletepopup').set_sensitive(False)
-                    elif model[path][3].Type == 'User':
-                        self.w('revertpopup').set_sensitive(False)
-                        self.w('propertiespopup').set_sensitive(True)
-                        self.w('deletepopup').set_sensitive(True)
-                    else:
-                        self.w('revertpopup').set_sensitive(False)
-                        self.w('propertiespopup').set_sensitive(True)
-                        self.w('deletepopup').set_sensitive(False)
-                self.w('popup').popup( None, None, None, event.button, time)
-            return 1
-
-    def on_properties_activate(self, *args):
-        entry_iter = self.w('entries').get_selection().get_selected()[1]
-        menu_iter = self.w('menus').get_selection().get_selected()[1]
-        if entry_iter:
-            self.setupEntryDialog(self.entry_store.get_value(entry_iter, 3))
-        elif menu_iter:
-            self.setupMenuDialog(self.menu_store.get_value(menu_iter, 3))
-
-    def on_revertchanges_activate(self, *args):
+    def getLocation(self):
         if self.entry_path:
-            self.handler.revertEntry(self.entry_store[self.entry_path][3])
+            item = self.entry_store[self.entry_path][3]
+            parent = item.Parent
+            index = parent.Entries.index(item)
         elif self.menu_path:
-            self.handler.revertMenu(self.menu_store[self.menu_path][3])
+            item = self.menu_store[self.menu_path][2]
+            parent = item
+            index = len(parent.Entries) - 1
+        else:
+            item = self.handler.editor.menu
+            return item, item, None, None
+        if item == self.handler.editor.menu:
+            return item, item, None, None
+        if index != 0:
+            before = parent.Entries[index - 1]
+        else:
+            before = parent.Entries[index]
+        if index < len(parent.Entries) - 1:
+            after = parent.Entries[index + 1]
+        else:
+            after = parent.Entries[index]
+        return item, parent, before, after
+
+    def setAllowed(self, entry):
+        self.w('editdelete').set_sensitive(False)
+        self.w('editrevert').set_sensitive(False)
+        self.w('deletepopup').set_sensitive(False)
+        self.w('revertpopup').set_sensitive(False)
+        if isinstance(entry, xdg.Menu.Separator):
+            self.w('editproperties').set_sensitive(False)
+            self.w('propertiespopup').set_sensitive(False)
+            self.w('editdelete').set_sensitive(True)
+            self.w('deletepopup').set_sensitive(True)
+            return
+        value = self.handler.getAccess(entry)
+        if value == 'none':
+            return
+        elif value == 'revert':
+            self.w('editrevert').set_sensitive(True)
+            self.w('revertpopup').set_sensitive(True)
+        elif value == 'delete':
+            self.w('editdelete').set_sensitive(True)
+            self.w('deletepopup').set_sensitive(True)
+
+    #menu callbacks
+    def on_filenewmenu_activate(self, menu):
+        dialogs = DialogHandler(self)
+        item, parent, before, after = self.getLocation()
+        name, comment, icon = dialogs.newMenuDialog()
+        if not self.entry_path:
+            parent = item
+            after = None
+        else:
+            after = item
+        if self.entry_path:
+            self.entry_path = (self.entry_path[0] + 1,)
+        self.handler.newMenu(parent, name, comment, icon, after)
         gobject.timeout_add(120, self.reloadSmeg)
 
-    def on_delete_activate(self, *args):
+    def on_filenewentry_activate(self, menu):
+        dialogs = DialogHandler(self)
+        item, parent, before, after = self.getLocation()
+        if not self.entry_path:
+            parent = item
+            after = None
+        else:
+            after = item
         if self.entry_path:
-            self.handler.deleteEntry(self.entry_store[self.entry_path][3])
-        elif self.menu_path:
-            self.handler.deleteMenu(self.menu_store[self.menu_path][3])
-        self.menu_path = None
-        self.entry_path = None
-        gobject.timeout_add(120, self.reloadSmeg, True)
+            self.entry_path = (self.entry_path[0] + 1,)
+        name, comment, command, icon, term = dialogs.newEntryDialog()
+        self.handler.newEntry(parent, name, comment, command, icon, term, after)
+        gobject.timeout_add(120, self.reloadSmeg)
 
-    def on_menus_cursor_changed(self, treeview):
-        model, iter = treeview.get_selection().get_selected()
-        self.menu_path = model.get_path(iter)
-        self.entry_path = None
-        menu = model[self.menu_path][3]
-        if not menu.IsSeparator:
-            self.w('entries').get_selection().unselect_all()
-            self.getEntries(menu)
-
-    def on_entries_cursor_changed(self, treeview):
-        model, iter = treeview.get_selection().get_selected()
-        self.entry_path = model.get_path(iter)
-
-    def on_newmenu_clicked(self, button):
-        parent = 'Applications'
-        if self.menu_path:
-            parent = self.menu_store[self.menu_path][3]
-        self.setupMenuDialog(parent=parent)
-
-    def on_newentry_clicked(self, button):
-        parent = 'Applications'
-        if self.menu_path:
-            parent = self.menu_store[self.menu_path][3]
-        self.setupEntryDialog(parent=parent)
-
-    def on_newseparator_clicked(self, button):
-        entry = None
+    def on_filenewseparator_activate(self, menu):
+        item, parent, before, after = self.getLocation()
         if self.entry_path:
-            entry = self.entry_store[self.entry_path][3]
-        elif self.menu_path:
-            entry = self.menu_store[self.menu_path][3]
-        self.handler.newSeparator(entry)
-        gobject.timeout_add(120, self.reloadSmeg, True)
+            after = item
+        if self.entry_path:
+            self.entry_path = (self.entry_path[0] + 1,)
+        self.handler.newSeparator(parent, after)
+        gobject.timeout_add(120, self.reloadSmeg)
 
-    def on_mainwindow_destroy(self, window):
-        self.handler.quit()
+    def on_filequit_activate(self, menu):
+        self.handler.save()
         gtk.main_quit()
 
-    def on_helpabout_activate(self, menu):
-        about = gtk.AboutDialog()
-        if self.icon:
-            about.set_icon(self.icon)
-            about.set_logo(self.icon)
-        about.set_authors(['Travis Watkins <alleykat@gmail.com>'])
-        about.set_name('Smeg')
-        about.set_version(config.version)
-        about.set_comments('Simple Menu Editor for GNOME')
-        about.connect('response', lambda *a: about.hide())
-        about.show()
+    def on_editdelete_activate(self, menu):
+        item, parent, before, after = self.getLocation()
+        if isinstance(item, xdg.Menu.Menu):
+            self.handler.deleteMenu(item)
+        elif isinstance(item, xdg.Menu.Separator):
+            self.handler.deleteSeparator(item)
+        elif isinstance(item, xdg.Menu.MenuEntry):
+            self.handler.deleteEntry(item)
+        gobject.timeout_add(120, self.reloadSmeg)
 
-    def on_preferences_activate(self, *args):
+    def on_editproperties_activate(self, menu):
+        dialogs = DialogHandler(self)
+        item, parent, before, after = self.getLocation()
+        if isinstance(item, xdg.Menu.Menu):
+            name, comment, icon = dialogs.setupMenuDialog(item.getName(),
+                item.getComment(), item.getIcon(), self.getIcon(item, 48))
+            self.handler.saveMenu(item, name, comment, icon)
+        elif isinstance(item, xdg.Menu.MenuEntry):
+            deskentry = item.DesktopEntry
+            name, comment, command, icon, term = dialogs.setupEntryDialog(
+                deskentry.getName(), deskentry.getComment(),
+                deskentry.getExec(), deskentry.getIcon(),
+                self.getIcon(deskentry, 48), deskentry.getTerminal())
+            self.handler.saveEntry(item, name, comment, command, icon, term)
+        gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_editrevert_activate(self, menu):
+        item, parent, before, after = self.getLocation()
+        if isinstance(item, xdg.Menu.MenuEntry):
+            self.handler.revertEntry(item)
+        elif isinstance(item, xdg.Menu.Menu):
+            self.handler.revertMenu(item)
+        gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_editpreferences_activate(self, menu):
         de_list = {0: 'GNOME', 1: 'KDE', 2: 'XFCE'}
         de_store = gtk.ListStore(str)
         self.w('prefcombo').set_model(de_store)
@@ -533,47 +329,205 @@ class Smeg:
         self.w('preferences').hide()
         return True
 
-    def on_mmoveup_clicked(self, button):
-        if not self.allow_move:
-            return
-        if self.menu_path:
-            menu = self.menu_store[self.menu_path][3]
-            if self.menu_store.iter_parent(self.menu_store.get_iter(self.menu_path)) != None:
-                if self.handler.moveMenuUp(menu):
-                    self.allow_move = False
-                    self.menu_path = self.menu_path[0:-1] + (self.menu_path[-1] - 1,)
-                    gobject.timeout_add(120, self.reloadSmeg)
+    def on_helpabout_activate(self, menu):
+        about = gtk.AboutDialog()
+        if self.icon:
+            about.set_icon(self.icon)
+            about.set_logo(self.icon)
+        about.set_authors(['Travis Watkins <alleykat@gmail.com>'])
+        about.set_name('Smeg')
+        about.set_version(config.version)
+        about.set_comments('Simple Menu Editor for GNOME')
+        about.connect('response', lambda *a: about.hide())
+        about.show()
 
-    def on_mmovedown_clicked(self, button):
-        if not self.allow_move:
-            return
-        if self.menu_path:
-            menu = self.menu_store[self.menu_path][3]
-            if self.menu_store.iter_parent(self.menu_store.get_iter(self.menu_path)) != None:
-                if self.handler.moveMenuDown(menu):
-                    self.allow_move = False
-                    self.menu_path = self.menu_path[0:-1] + (self.menu_path[-1] + 1,)
-                    gobject.timeout_add(120, self.reloadSmeg)
+    #drag and drop stuff
+    def on_menus_drag_data_get_data(self, treeview, context, selection, target_id, etime):
+        model, iter = treeview.get_selection().get_selected()
+        self.drag_path = self.menu_store.get_path(self.w('menus').get_selection().get_selected()[1])
+        path = pickle.dumps(model.get_path(iter))
+        selection.set(selection.target, 8, 'menus:::' + path)
 
-    def on_emoveup_clicked(self, button):
-        if not self.allow_move:
-            return
-        if self.entry_path:
-            entry = self.entry_store[self.entry_path][3]
-            if self.handler.moveEntryUp(entry):
-                self.allow_move = False
-                self.entry_path = (self.entry_path[0] - 1,)
-                gobject.timeout_add(120, self.reloadSmeg)
+    def on_entries_drag_data_get_data(self, treeview, context, selection, target_id, etime):
+        model, iter = treeview.get_selection().get_selected()
+        self.drag_path = self.menu_store.get_path(self.w('menus').get_selection().get_selected()[1])
+        path = pickle.dumps(model.get_path(iter))
+        selection.set(selection.target, 8, 'entries:::' + path)
 
-    def on_emovedown_clicked(self, button):
+    def on_entries_drag_data_received_data(self, treeview, context, x, y, selection, info, etime):
+        model = treeview.get_model()
+        source, source_path = selection.data.split(':::', 1)
+        source_path = pickle.loads(source_path)
+        drop_info = treeview.get_dest_row_at_pos(x, y)
+        if drop_info:
+            path, position = drop_info
+            iter = model.get_iter(path)
+            if path == source_path:
+                return False
+            if source == 'entries':
+                before = None
+                after = None
+                entry = self.entry_store[source_path][3]
+                if position == gtk.TREE_VIEW_DROP_BEFORE or position == gtk.TREE_VIEW_DROP_INTO_OR_BEFORE:
+                    before = model[path][3]
+                    self.entry_path = path
+                    model.insert_before(iter, self.entry_store[source_path])
+                else:
+                    after = model[path][3]
+                    self.entry_path = path
+                    model.insert_after(iter, self.entry_store[source_path])
+                self.handler.moveEntry(entry, entry.Parent, entry.Parent,
+                    before, after, drag=True)
+            else:
+                return False
+        else:
+            if source == 'entries':
+                path = (len(model) - 1,)
+                iter = model.get_iter(path)
+                entry = self.entry_store[source_path][3]
+                model.insert_after(iter, self.entry_store[source_path])
+                after = model[path][3]
+                self.entry_path = path
+                self.handler.moveEntry(entry, entry.Parent, entry.Parent,
+                    after=after, drag=True)
+            else:
+                return False
+        gobject.timeout_add(120, self.reloadSmeg)
+        context.finish(True, True, etime)
+
+    def on_menus_drag_data_received_data(self, treeview, context, x, y, selection, info, etime):
+        model = treeview.get_model()
+        source, source_path = selection.data.split(':::', 1)
+        source_path = pickle.loads(source_path)
+        drop_info = treeview.get_dest_row_at_pos(x, y)
+        if drop_info:
+            path, position = drop_info
+            if position not in (gtk.TREE_VIEW_DROP_INTO_OR_BEFORE, gtk.TREE_VIEW_DROP_INTO_OR_AFTER):
+                return False
+            if source == 'entries':
+                entry = self.entry_store[source_path][3]
+                if isinstance(entry, xdg.Menu.Separator):
+                    return False
+                if isinstance(entry, xdg.Menu.MenuEntry):
+                    self.handler.moveEntry(entry, entry.Parent, model[path][2])
+                elif isinstance(entry, xdg.Menu.Menu):
+                    if model[path][2] == entry.Parent:
+                        return False
+                    self.handler.moveMenu(entry, entry.Parent, model[path][2])
+                self.menu_path = path
+                self.entry_path = None
+            elif source == 'menus':
+                if path == source_path:
+                    return False
+                menu = self.menu_store[source_path][2]
+                if model[path][2].getName() == 'Other':
+                    return False
+                self.entry_path = None
+                self.menu_path = path
+                if model[path][2] != self.handler.editor.menu:
+                    if model[path][2].Parent == menu.Parent:
+                        source_index = menu.Parent.Entries.index(menu)
+                        dest_index = menu.Parent.Entries.index(model[path][2])
+                        if source_index < dest_index:
+                            self.menu_path = path[0:-1] + (path[-1] - 1,)
+                parent = model[path][2]
+                while parent != self.handler.editor.menu:
+                    if parent == menu:
+                        return False
+                    parent = parent.Parent
+                self.handler.moveMenu(menu, menu.Parent, model[path][2])
+            gobject.timeout_add(120, self.reloadSmeg)
+        context.finish(True, True, etime)
+        return
+
+    #menu treeview callbacks
+    def on_menus_cursor_changed(self, treeview):
+        model, iter = treeview.get_selection().get_selected()
+        path = model.get_path(iter)
+        menu = model[path][2]
+        self.setAllowed(menu)
+        self.menu_path = path
+        self.entry_path = None
+        self.w('entries').get_selection().unselect_all()
+        self.getEntries(menu)
+
+    #entry treeview callbacks
+    def on_entry_visible_toggled(self, cell, path):
+        entry = self.entry_store[path][3]
+        if isinstance(entry, xdg.Menu.Menu) and entry.Show == 'Empty':
+            return
+        if not isinstance(entry, xdg.Menu.Separator):
+            self.entry_store[path][0] = not self.entry_store[path][0]
+            self.handler.toggleVisible(entry, not self.entry_store[path][0])
+            gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_entries_cursor_changed(self, treeview):
+        model, iter = treeview.get_selection().get_selected()
+        path = model.get_path(iter)
+        self.setAllowed(model[path][3])
+        self.entry_path = path
+
+    #creation buttons callbacks
+    def on_newmenu_clicked(self, button):
+        self.on_filenewmenu_activate(None)
+
+    def on_newentry_clicked(self, button):
+        self.on_filenewentry_activate(None)
+
+    def on_newseparator_clicked(self, button):
+        self.on_filenewseparator_activate(None)
+
+    #move buttons callbacks
+    def on_moveup_clicked(self, button):
         if not self.allow_move:
             return
-        if self.entry_path:
-            entry = self.entry_store[self.entry_path][3]
-            if self.handler.moveEntryDown(entry):
-                self.allow_move = False
-                self.entry_path = (self.entry_path[0] - 1,)
-                gobject.timeout_add(120, self.reloadSmeg)
+        item, parent, before, after = self.getLocation()
+        if self.handler.moveEntry(item, parent, parent, before=before):
+            self.entry_path = (self.entry_path[0] - 1,)
+        self.allow_move = False
+        gobject.timeout_add(120, self.reloadSmeg)
+
+    def on_movedown_clicked(self, button):
+        if not self.allow_move:
+            return
+        item, parent, before, after = self.getLocation()
+        if self.handler.moveEntry(item, parent, parent, after=after):
+            self.entry_path = (self.entry_path[0] + 1,)
+        self.allow_move = False
+        gobject.timeout_add(120, self.reloadSmeg)
+
+    #right click menu callbacks
+    def on_tree_button_press_event(self, treeview, event):
+        if event.button == 3:
+            x = int(event.x)
+            y = int(event.y)
+            time = event.time
+            pthinfo = treeview.get_path_at_pos(x, y)
+            if pthinfo != None:
+                path, col, cellx, celly = pthinfo
+                model = treeview.get_model()
+                iter = model.get_iter(path)
+                if model.iter_has_child(iter):
+                    if model.iter_parent(iter) == None:
+                        return 1
+                treeview.grab_focus()
+                treeview.set_cursor(path, col, 0)
+                self.w('popup').popup( None, None, None, event.button, time)
+            return 1
+
+    def on_deletepopup_activate(self, menu):
+        self.on_editdelete_activate(None)
+
+    def on_revertpopup_activate(self, menu):
+        self.on_editrevert_activate(None)
+
+    def on_propertiespopup_activate(self, menu):
+        self.on_editproperties_activate(None)
+
+    #and we're done
+    def on_mainwindow_destroy(self, window):
+        self.handler.quit()
+        gtk.main_quit()
 
     def run(self):
         signals = {}

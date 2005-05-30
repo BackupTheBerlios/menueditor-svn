@@ -1,7 +1,6 @@
 #  Smeg - Simple Menu Editor for GNOME
 #
 #  Travis Watkins <alleykat@gmail.com>
-#  Matt Kynaston <mattkyn@gmail.com>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -17,8 +16,9 @@
 #  along with this program; if not, write to the Free Software
 #  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #
-#  (C) Copyright 2005 Travis Watkins, Matt Kynaston
+#  (C) Copyright 2005 Travis Watkins
 
+from __future__ import generators
 import os, sys
 cmddir = os.path.split(sys.argv[0])[0]
 prefix = os.path.split(cmddir)[0]
@@ -26,24 +26,26 @@ if prefix == '': prefix = '.'
 libdir = os.path.join(prefix, 'lib/smeg')
 sys.path = [libdir] + sys.path
 
-import xdg.Menu, xdg.Config, xdg.IniFile, xdg.MenuEditor
+import xdg.Menu, xdg.Config, xdg.IniFile, xdg.MenuEditor, xdg.BaseDirectory
 import xdg.IconTheme
 import string, locale
 import xml.dom.minidom, xml.dom
 
-class MenuHandler:
+class MenuHandler(xdg.MenuEditor.MenuEditor):
     def __init__(self, renderer, config):
         self.config = config
         if not self.config['desktop_environment']:
             self.config['desktop_environment'] = 'GNOME'
         self.renderer = renderer
         self.setWM(self.config['desktop_environment'])
+        xdg.Config.cache_time = 300
         try:
             self.locale = locale.getdefaultlocale()[0]
         except:
             self.locale = None
 
-        self.editor = xdg.MenuEditor.MenuEditor()
+        xdg.MenuEditor.MenuEditor.__init__(self)
+        self.editor = self
         self.getIconThemes()
 
     def setWM(self, wm):
@@ -78,26 +80,34 @@ class MenuHandler:
         if self.config['use_custom_theme']:
             self.themes = [self.config['custom_theme_name'],]
 
-    def getIconPath(self, name, size):
-        if '/' in name:
-            if os.access(name, os.F_OK):
-                path = name
-            else:
-                path = None
+    def getIconPath(self, entry, size):
+        if isinstance(entry, xdg.Menu.Separator):
+            return None
+        if isinstance(entry, (str, unicode)):
+            icon = entry
+        elif isinstance(entry, xdg.Menu.MenuEntry):
+            icon = entry.DesktopEntry.getIcon()
         else:
+            icon = entry.getIcon()
+            if entry == self.editor.menu:
+                return self.getIconPath('gnome-main-menu', size)
+        if '/' in icon:
+            if os.access(icon, os.F_OK):
+                return icon
+            else:
+                return None
+
+        if not 'debian' in icon or icon == 'debian-logo':
             i = 0
             while i < len(self.themes):
-                path = xdg.IconTheme.getIconPath(name, size, self.themes[i])
+                path = xdg.IconTheme.getIconPath(icon, size, self.themes[i])
                 if path != None:
-                    break
+                    return path
                 i += 1
-        return path
-
-    def save(self):
-        self.editor.save()
-
-    def parse(self):
-        self.editor.parse()
+        if isinstance(entry, xdg.Menu.Menu):
+            return self.getIconPath('gnome-fs-directory', size)
+        elif isinstance(entry, xdg.Menu.MenuEntry):
+            return self.getIconPath('application-default-icon', size)
 
     def quit(self):
         nodes = self.editor.doc.getElementsByTagName('Merge')
@@ -110,9 +120,8 @@ class MenuHandler:
     def loadMenus(self, depth=1, menu=None):
         if not menu:
             menu = self.editor.menu
-            menu.IsSeparator = False
             self.depths = {0: None}
-            self.depths[1] = self.renderer.addMenu(menu, self.depths, depth, menu.Show)
+            self.depths[1] = self.renderer.addMenu(menu, self.depths, depth)
 
         depth += 1
         for entry in menu.getEntries(True):
@@ -122,134 +131,121 @@ class MenuHandler:
                         entry.Type = entry.Directory.Type
                     else:
                         entry.Type = 'System'
-                    entry.IsSeparator = False
-                    self.depths[depth] = self.renderer.addMenu(entry, self.depths, depth, entry.Show)
+                    self.depths[depth] = self.renderer.addMenu(entry, self.depths, depth)
                     self.loadMenus(depth, entry)
-            elif isinstance(entry, xdg.Menu.Separator):
-                entry.IsSeparator = True
-                self.depths[depth] = self.renderer.addMenu(entry, self.depths, depth, True)
         depth -= 1
 
     def loadEntries(self, menu):
         entries = []
         for entry in menu.getEntries(True):
-            if isinstance(entry, xdg.Menu.MenuEntry):
+            if isinstance(entry, xdg.Menu.Menu):
+                if entry.getName() != '':
+                    if entry.Directory:
+                        entry.Type = entry.Directory.Type
+                    else:
+                        entry.Type = 'System'
+                    yield entry
+            elif isinstance(entry, xdg.Menu.MenuEntry):
                 if '-usercustom' not in entry.DesktopFileID:
                     if entry.Show == 'NoDisplay' or entry.Show == True:
                         entry.Parent = menu
-                        entry.IsSeparator = False
-                        entries.append(entry)
-            if isinstance(entry, xdg.Menu.Separator):
+                        yield entry
+            elif isinstance(entry, xdg.Menu.Separator):
+                if self.config['desktop_environment'] == 'KDE' and entry.Show == False:
+                    continue
                 entry.Parent = menu
-                entry.IsSeparator = True
-                if not menu == self.editor.menu:
-                    entries.append(entry)
-        return entries
+                yield entry
 
-    def moveEntry(self, entry, oldparent, newparent):
-        self.editor.moveEntry(entry, oldparent, newparent)
+    def copyAppDirs(self, oldparent, newparent):
+        master = self.menu.AppDirs
+        new_menu = self._MenuEditor__getXmlMenu(newparent.getPath(True, True))
+        for appdir in oldparent.AppDirs:
+            if appdir not in master and appdir not in newparent.AppDirs:
+                self._MenuEditor__addXmlTextElement(new_menu, 'AppDir', appdir)
 
-    def moveMenu(self, menu, oldparent, newparent):
-        self.editor.moveMenu(menu, oldparent, newparent)
+    def copyDirectoryDirs(self, oldparent, newparent):
+        master = self.menu.DirectoryDirs
+        new_menu = self._MenuEditor__getXmlMenu(newparent.getPath(True, True))
+        for dirdir in oldparent.DirectoryDirs:
+            if dirdir not in master and dirdir not in newparent.DirectoryDirs:
+                self._MenuEditor__addXmlTextElement(new_menu, 'DirectoryDir', dirdir)
 
-    def moveEntryUp(self, entry):
-        index = entry.Parent.Entries.index(entry)
-        if index != 0:
-            parent = entry.Parent
-            before = entry.Parent.Entries[index - 1]
-            if entry.IsSeparator:
-                self.editor.moveSeparator(entry, parent, before=before)
-            else:
-                self.editor.moveEntry(entry, parent, parent, before=before)
-            return True
+    def getAccess(self, entry):
+        return self.getAction(entry)
 
-    def moveMenuUp(self, menu):
-        index = menu.Parent.Entries.index(menu)
-        if index != 0:
-            parent = menu.Parent
-            before = menu.Parent.Entries[index - 1]
-            if menu.IsSeparator:
-                self.editor.moveSeparator(menu, parent, before=before)
-            else:
-                self.editor.moveMenu(menu, parent, parent, before=before)
-            return True
-
-    def moveEntryDown(self, entry):
-        index = entry.Parent.Entries.index(entry)
-        if index != len(entry.Parent.Entries) - 1:
-            parent = entry.Parent
-            after = entry.Parent.Entries[index + 1]
-            if entry.IsSeparator:
-                self.editor.moveSeparator(entry, parent, before=before)
-            else:
-                self.editor.moveEntry(entry, parent, parent, after=after)
-            return True
-
-    def moveMenuDown(self, menu):
-        index = menu.Parent.Entries.index(menu)
-        if index != len(menu.Parent.Entries) - 1:
-            parent = menu.Parent
-            after = menu.Parent.Entries[index + 1]
-            if menu.IsSeparator:
-                self.editor.moveSeparator(menu, parent, after=after)
-            else:
-                self.editor.moveMenu(menu, parent, parent, after=after)
-            return True
-
-    def toggleEntryVisible(self, entry, visible):
+    def toggleVisible(self, entry, visible):
         if visible:
-            self.editor.hideEntry(entry)
+            if isinstance(entry, xdg.Menu.Menu):
+                self.saveMenu(entry, nodisplay=True)
+            else:
+                self.saveEntry(entry, nodisplay=True)
         else:
-            self.editor.unhideEntry(entry)
+            if isinstance(entry, xdg.Menu.Menu):
+                self.saveMenu(entry, nodisplay=False)
+            else:
+                self.saveEntry(entry, nodisplay=False)
 
-    def toggleMenuVisible(self, menu, visible):
-        if visible:
-            self.editor.hideMenu(menu)
-        else:
-            self.editor.unhideMenu(menu)
+    def moveEntry(self, entry, oldparent, newparent, before=None, after=None, drag=False):
+        if newparent.Name == 'Other':
+            return False
+        if oldparent == newparent and not drag:
+            if after:
+                if oldparent.Entries.index(entry) == len(oldparent.Entries) - 1:
+                    return False
+            if before:
+                if oldparent.Entries.index(entry) == 0:
+                    return False
+        self.moveMenuEntry(entry, oldparent, newparent, after, before)
+        if oldparent != newparent:
+            self.copyAppDirs(oldparent, newparent)
+        return True
+
+    def moveMenu(self, menu, oldparent, newparent, before=None, after=None):
+        if after:
+            if oldparent.Entries.index(menu) == len(oldparent.Entries) - 1:
+                return False
+        if before:
+            if oldparent.Entries.index(menu) == 0:
+                return False
+        xdg.MenuEditor.MenuEditor.moveMenu(self, menu, oldparent, newparent, after, before)
+        if oldparent != newparent:
+            self.copyAppDirs(oldparent, newparent)
+            self.copyDirectoryDirs(oldparent, newparent)
+        return True
+
+    def moveSeparator(self, separator, parent, before=None, after=None):
+        if after:
+            if parent.Entries.index(separator) == len(parent.Entries) - 1:
+                return False
+        if before:
+            if parent.Entries.index(separator) == 0:
+                return False
+        xdg.MenuEditor.MenuEditor.moveSeparator(self, separator, parent, after, before)
+        return True
 
     def revertEntry(self, entry):
-        self.editor.revertEntry(entry)
+        self.revertMenuEntry(entry)
 
-    def revertMenu(self, menu):
-        self.editor.revertMenu(menu)
+    def newEntry(self, parent, name, comment, command, icon, term, after):
+        if name != None:
+            self.createMenuEntry(parent, name, command, None, comment, icon, term, after=after)
 
-    def newEntry(self, parent, name, comment, command, icon, term):
-        if parent == 'Applications':
-            parent = self.editor.menu
-        self.editor.createEntry(parent, name, command, None, comment, icon, term)
+    def newMenu(self, parent, name, comment, icon, after):
+        if name != None:
+            self.createMenu(parent, name, None, comment, icon, after=after)
 
-    def newMenu(self, parent, name, comment, icon):
-        print parent, type(parent)
-        if parent == 'Applications':
-            parent = self.editor.menu
-        print parent, type(parent)
-        self.editor.createMenu(parent, name, None, comment, icon)
+    def newSeparator(self, parent, after):
+        self.createSeparator(parent, after=after)
 
-    def newSeparator(self, entry):
-        if entry == None or entry == self.editor.menu:
-            parent = self.editor.menu
-            after = parent.Entries[-1]
-        else:
-            parent = entry.Parent
-            index = parent.Entries.index(entry)
-            after = parent.Entries[index]
-        self.editor.createSeparator(parent, after=after)
+    def saveEntry(self, entry, name=None, comment=None, command=None, icon=None, term=None, nodisplay=None):
+        self.editMenuEntry(entry, name, None, comment, command, icon, term, nodisplay=nodisplay)
+        menu = self._MenuEditor__getXmlMenu(entry.Parent.getPath(True, True))
+        self._MenuEditor__addXmlTextElement(menu, 'AppDir', os.path.join(xdg.BaseDirectory.xdg_data_dirs[0], 'applications'))
 
-    def saveEntry(self, entry, name, comment, command, icon, term):
-        self.editor.editEntry(entry, name, None, comment, command, icon, term)
-
-    def saveMenu(self, menu, name, comment, icon):
-        self.editor.editMenu(menu, name, None, comment, icon)
+    def saveMenu(self, menu, name=None, comment=None, icon=None, nodisplay=None):
+        xdg.MenuEditor.MenuEditor.editMenu(self, menu, name, None, comment, icon, nodisplay=nodisplay)
+        menu = self._MenuEditor__getXmlMenu(menu.getPath(True, True))
+        self._MenuEditor__addXmlTextElement(menu, 'DirectoryDir', os.path.join(xdg.BaseDirectory.xdg_data_dirs[0], 'desktop-directories'))
 
     def deleteEntry(self, entry):
-        if entry.IsSeparator:
-            self.editor.deleteSeparator(entry)
-        else:
-            self.editor.deleteEntry(entry)
-
-    def deleteMenu(self, menu):
-        if menu.IsSeparator:
-            self.editor.deleteSeparator(menu)
-        else:
-            self.editor.deleteMenu(menu)
+        self.deleteMenuEntry(entry)
