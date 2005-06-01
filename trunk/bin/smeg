@@ -42,30 +42,23 @@ class Smeg:
     menu_path = None
     entry_path = None
     allow_move = True
-    icon_cache = {}
+    advanced_features = True
 
     def __init__(self):
         self.tree = gtk.glade.XML(os.path.join(libdir, 'smeg.glade'))
-        self.config = config.Configuration('/apps/smeg')
         self.w = self.tree.get_widget
         self.w('prefcustomtheme').set_group(self.w('prefdefaulttheme'))
-        self.handler = MenuHandler(self, self.config)
+        self.handler = MenuHandler(self)
+        self.config = config.Configuration()
 
     def setIcon(self):
-        try:
-            filename = './smeg.png'
-            if not os.path.isfile(filename):
-                icondir = prefix
-                if not prefix == '.':
-                    icondir = os.path.join(prefix, 'share/pixmaps')
-                filename = os.path.join(icondir, 'smeg.png')
-            self.icon = gtk.gdk.pixbuf_new_from_file(filename)
-            self.w('mainwindow').set_icon(self.icon)
-            self.w('menudialog').set_icon(self.icon)
-            self.w('entrydialog').set_icon(self.icon)
-            self.w('preferences').set_icon(self.icon)
-        except:
-            self.icon = None
+        if self.handler.desktop_environment == 'GNOME':
+            icon = self.getIcon('gnome-main-menu')
+        else:
+            icon = self.getIcon('kmenu')
+        self.w('mainwindow').set_icon(icon)
+        self.w('menudialog').set_icon(icon)
+        self.w('entrydialog').set_icon(icon)
 
     def getIcon(self, entry, size=24):
         path = self.handler.getIconPath(entry, size)
@@ -123,7 +116,8 @@ class Smeg:
 
         self.entry_store = gtk.ListStore(bool, gtk.gdk.Pixbuf, str, object)
         entries.set_model(self.entry_store)
-        entries.enable_model_drag_dest(self.dnd_targets, gtk.gdk.ACTION_PRIVATE)
+        if self.advanced_features:
+            entries.enable_model_drag_dest(self.dnd_targets, gtk.gdk.ACTION_PRIVATE)
         entries.enable_model_drag_source(gtk.gdk.BUTTON1_MASK, self.dnd_targets,
             gtk.gdk.ACTION_MOVE | gtk.gdk.ACTION_DEFAULT)
         entries.connect('drag_data_received', self.on_entries_drag_data_received_data)
@@ -296,48 +290,18 @@ class Smeg:
             self.handler.revertMenu(item)
         gobject.timeout_add(120, self.reloadSmeg)
 
-    def on_editpreferences_activate(self, menu):
-        de_list = {0: 'GNOME', 1: 'KDE', 2: 'XFCE'}
-        de_store = gtk.ListStore(str)
-        self.w('prefcombo').set_model(de_store)
-        for key, value in de_list.iteritems():
-            de_store.append([value,])
-            if value == self.config['desktop_environment']:
-                self.w('prefcombo').set_active(key)
-        cell = gtk.CellRendererText()
-        self.w('prefcombo').pack_start(cell, True)
-        self.w('prefcombo').set_attributes(cell, text=0)
-        self.w('prefcustomtheme').set_active(self.config['use_custom_theme'] or False)
-        self.w('prefthemeentry').set_text(self.config['custom_theme_name'] or '')
-        self.w('preferences').show()
-        response = self.w('preferences').run()
-        if response == gtk.RESPONSE_OK:
-            de = self.w('prefcombo').get_active()
-            self.config['desktop_environment'] = de_list[de]
-            use_custom = self.w('prefcustomtheme').get_active()
-            self.config['use_custom_theme'] = use_custom
-            theme = self.w('prefthemeentry').get_text()
-            self.config['custom_theme_name'] = theme
-            self.handler.setWM(self.config['desktop_environment'])
-            self.handler.getIconThemes()
-            gobject.timeout_add(120, self.reloadSmeg)
-        self.w('prefcombo').set_model(None)
-        self.w('prefcombo').clear()
-        self.w('preferences').hide()
-
-    def on_preferences_delete_event(self, *args):
-        self.w('preferences').hide()
-        return True
-
     def on_helpabout_activate(self, menu):
         about = gtk.AboutDialog()
-        if self.icon:
-            about.set_icon(self.icon)
-            about.set_logo(self.icon)
+        if self.handler.desktop_environment == 'GNOME':
+            about.set_icon(self.getIcon('gnome-main-menu'))
+            about.set_logo(self.getIcon('gnome-main-menu', 64))
+        else:
+            about.set_icon(self.getIcon('kmenu'))
+            about.set_logo(self.getIcon('kmenu', 64))
         about.set_authors(['Travis Watkins <alleykat@gmail.com>'])
         about.set_name('Smeg')
         about.set_version(config.version)
-        about.set_comments('Simple Menu Editor for GNOME')
+        about.set_comments('Simple fd.o Complient Menu Editor')
         about.connect('response', lambda *a: about.hide())
         about.show()
 
@@ -539,6 +503,23 @@ class Smeg:
         self.setupMenusTree()
         self.setupEntriesTree()
         self.getMenus()
+        if self.handler.desktop_environment == 'GNOME':
+            try:
+                import commands
+                version = commands.getoutput('pkg-config --modversion libgnome-menu')[2:4]
+                if version < '11':
+                    if not self.config['warned_about_gnome_menus']:
+                        dialog = gtk.MessageDialog(None, gtk.DIALOG_MODAL, gtk.MESSAGE_WARNING, gtk.BUTTONS_OK, 'GNOME 2.10 does not support menu reordering or separators. These features will be disabled. Please upgrade to a newer version of GNOME.')
+                        dialog.run()
+                        dialog.destroy()
+                        self.config['warned_about_gnome_menus'] = True
+                    self.advanced_features = False
+                    self.w('newseparator').hide()
+                    self.w('filenewseparator').hide()
+                    self.w('movebox').hide()
+            except:
+                pass
+        self.w('mainwindow').show()
         gtk.main()
 
 def main():

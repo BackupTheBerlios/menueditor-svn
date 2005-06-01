@@ -32,19 +32,40 @@ import string, locale
 import xml.dom.minidom, xml.dom
 
 class MenuHandler(xdg.MenuEditor.MenuEditor):
-    def __init__(self, renderer, config):
-        self.config = config
-        if not self.config['desktop_environment']:
-            self.config['desktop_environment'] = 'GNOME'
+    def __init__(self, renderer):
+        menu, filename = None, None
+        self.desktop_environment = 'GNOME'
+        if len(sys.argv) > 1:
+            self.desktop_environment = 'KDE'
+
         self.renderer = renderer
-        self.setWM(self.config['desktop_environment'])
+        self.setWM(self.desktop_environment)
         xdg.Config.cache_time = 300
         try:
             self.locale = locale.getdefaultlocale()[0]
         except:
             self.locale = None
 
-        xdg.MenuEditor.MenuEditor.__init__(self)
+        if os.environ['LOGNAME'] == 'root':
+            filename = os.path.join(xdg.BaseDirectory.xdg_config_dirs[1], 'menus', 'applications.menu')
+
+        if self.desktop_environment == 'KDE':
+            menu_path = os.path.join(xdg.BaseDirectory.xdg_config_dirs[1], 'menus', 'kde-applications.menu')
+            if os.access(menu_path, os.R_OK):
+                if os.environ['LOGNAME'] == 'root':
+                    filename = menu_path
+                else:
+                    filename = os.path.join(xdg.BaseDirectory.xdg_config_dirs[0], 'menus', 'kde-applications.menu')
+                    if not os.path.isdir(os.path.dirname(filename)):
+                        os.makedirs(os.path.dirname(filename))
+                    fd = open(filename, 'w')
+                    fd.write('<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN" "http://standards.freedesktop.org/menu-spec/menu-1.0.dtd"><Menu><Name>Applications</Name><MergeFile type="parent">' + menu_path + '</MergeFile></Menu>')
+                    fd.close()
+
+        if filename != None:
+            menu = xdg.Menu.parse(filename)
+
+        xdg.MenuEditor.MenuEditor.__init__(self, menu, filename)
         self.editor = self
         self.getIconThemes()
 
@@ -52,11 +73,16 @@ class MenuHandler(xdg.MenuEditor.MenuEditor):
         xdg.Config.setWindowManager(wm)
 
     def getIconThemes(self):
-        import config
-        self.themes = []
+        self.theme = ''
         kde_theme, gnome_theme = None, None
 
-        gnome_theme = config.Configuration('/desktop/gnome/interface')['icon_theme']
+        try:
+            fd = os.popen3('gconftool-2 -g /desktop/gnome/interface/icon_theme')
+            output = fd[1].readlines()
+            gnome_theme = output[0].strip()
+        except:
+            gnome_theme = 'gnome'
+
         try:
             fd = os.popen3('kde-config --path config')
             output = fd[1].readlines()
@@ -71,14 +97,11 @@ class MenuHandler(xdg.MenuEditor.MenuEditor):
                 kde_theme = 'default.kde'
         except:
             kde_theme = 'default.kde'
-        if self.config['desktop_environment'] == 'GNOME':
-            self.themes = [gnome_theme, kde_theme]
-        elif self.config['desktop_environment'] == 'KDE':
-            self.themes = [kde_theme, gnome_theme]
-        else:
-            self.themes = ['hicolor',]
-        if self.config['use_custom_theme']:
-            self.themes = [self.config['custom_theme_name'],]
+
+        if self.desktop_environment == 'GNOME':
+            self.theme = gnome_theme
+        elif self.desktop_environment == 'KDE':
+            self.theme = kde_theme
 
     def getIconPath(self, entry, size):
         if isinstance(entry, xdg.Menu.Separator):
@@ -90,7 +113,10 @@ class MenuHandler(xdg.MenuEditor.MenuEditor):
         else:
             icon = entry.getIcon()
             if entry == self.editor.menu:
-                return self.getIconPath('gnome-main-menu', size)
+                if self.desktop_environment == 'GNOME':
+                    return self.getIconPath('gnome-main-menu', size)
+                else:
+                    return self.getIconPath('kmenu', size)
         if '/' in icon:
             if os.access(icon, os.F_OK):
                 return icon
@@ -99,11 +125,9 @@ class MenuHandler(xdg.MenuEditor.MenuEditor):
 
         if not 'debian' in icon or icon == 'debian-logo':
             i = 0
-            while i < len(self.themes):
-                path = xdg.IconTheme.getIconPath(icon, size, self.themes[i])
-                if path != None:
-                    return path
-                i += 1
+            path = xdg.IconTheme.getIconPath(icon, size, self.theme)
+            if path != None:
+                return path
         if isinstance(entry, xdg.Menu.Menu):
             return self.getIconPath('gnome-fs-directory', size)
         elif isinstance(entry, xdg.Menu.MenuEntry):
@@ -151,7 +175,7 @@ class MenuHandler(xdg.MenuEditor.MenuEditor):
                         entry.Parent = menu
                         yield entry
             elif isinstance(entry, xdg.Menu.Separator):
-                if self.config['desktop_environment'] == 'KDE' and entry.Show == False:
+                if self.desktop_environment == 'KDE' and entry.Show == False:
                     continue
                 entry.Parent = menu
                 yield entry
